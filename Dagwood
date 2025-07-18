@@ -1,0 +1,32 @@
+project dagwood
+
+set DAGWOOD_STDLIB_IN  src/tcl/dagwood-stdlib.tcl
+set DAGWOOD_STDLIB_OUT src/tcl/dagwood_stdlib.h
+
+task bundle-stdlib {
+    description "Converts the Dagwood stdlib to a C header"
+    inputs  $DAGWOOD_STDLIB_IN
+    outputs $DAGWOOD_STDLIB_OUT
+    run {
+	echo "Generating Dagwood stdlib header"
+	xxd -i $DAGWOOD_STDLIB_IN > $DAGWOOD_STDLIB_OUT
+    }
+}
+
+set CC        gcc
+set TARGETS   [unique-glob src/**/*.c src/**/*.h $DAGWOOD_STDLIB_OUT]
+set OUT       build/dagwood
+set OPTS      [list -g -O0]
+set LINK_OPTS -ltcl
+
+task build {
+    description "Build Dagwood"
+    inputs  $TARGETS
+    outputs $OUT
+    run {
+	echo "Compiling dagwood.c"
+	$CC $TARGETS $OPTS -o $OUT $LINK_OPTS
+    }
+}
+
+project_execute dagwood
