@@ -1,0 +1,10 @@
+# Multi-project test
+# Note: source/import functionality not yet implemented in LCL
+# For now, just declare a placeholder project
+
+project multiproject
+
+task placeholder {
+    description "Placeholder task for multi-project test"
+    run { echo "Multi-project test" }
+}

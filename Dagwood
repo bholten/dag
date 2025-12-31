@@ -1,32 +1,81 @@
+# Dagwood build file for the Dagwood project itself
+# Using the flat LCL DSL syntax
+
 project dagwood
 
-set DAGWOOD_STDLIB_IN  src/tcl/dagwood-stdlib.tcl
-set DAGWOOD_STDLIB_OUT src/tcl/dagwood_stdlib.h
+config {
+    always_run false
+    description "The Dagwood task-orchestration tool"
+    shell     /bin/sh
+    shell_arg -c
+}
 
-task bundle-stdlib {
-    description "Converts the Dagwood stdlib to a C header"
-    inputs  $DAGWOOD_STDLIB_IN
-    outputs $DAGWOOD_STDLIB_OUT
+let BUILD_FOLDER build/
+
+task build_pre_reqs {
+    description "Setup the build folder"
+    outputs $dagwood::BUILD_FOLDER
     run {
-	echo "Generating Dagwood stdlib header"
-	xxd -i $DAGWOOD_STDLIB_IN > $DAGWOOD_STDLIB_OUT
+        mkdir -p $dagwood::BUILD_FOLDER
     }
 }
 
-set CC        gcc
-set TARGETS   [unique-glob src/**/*.c src/**/*.h $DAGWOOD_STDLIB_OUT]
-set OUT       build/dagwood
-set OPTS      [list -g -O0]
-set LINK_OPTS -ltcl
+let CC gcc
+let SOURCE [glob src/*.c]
+let HEADERS [glob src/*.h]
+let KLIB_HEADERS [glob lib/klib/*.h]
 
-task build {
-    description "Build Dagwood"
-    inputs  $TARGETS
-    outputs $OUT
+let STANDARD_OPTS "-std=c11 -Os -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -D_GNU_SOURCE -Wstrict-overflow -fno-strict-aliasing"
+let DEBUG_OPTS "-g3 -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline -fsanitize=address"
+let RELEASE_OPTS "-O2 -DNDEBUG -s -march=native"
+
+task debug {
+    description "Build Dagwood - debug"
+    depends_on dagwood::build_pre_reqs
+    inputs $dagwood::SOURCE $dagwood::HEADERS $dagwood::KLIB_HEADERS
+    outputs $dagwood::BUILD_FOLDER/dagwood_debug
     run {
-	echo "Compiling dagwood.c"
-	$CC $TARGETS $OPTS -o $OUT $LINK_OPTS
+        $dagwood::CC $dagwood::DEBUG_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::debug::outputs
     }
 }
 
-project_execute dagwood
+task release {
+    description "Build Dagwood - release"
+    depends_on dagwood::build_pre_reqs
+    inputs $dagwood::SOURCE $dagwood::HEADERS $dagwood::KLIB_HEADERS
+    outputs $dagwood::BUILD_FOLDER/dagwood
+    run {
+        $dagwood::CC $dagwood::RELEASE_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::release::outputs
+    }
+}
+
+let COMPILE_COMMANDS compile_commands.json
+
+task bear {
+    description "Generate compile_commands.json for clangd"
+    depends_on dagwood::debug
+    inputs $dagwood::SOURCE $dagwood::HEADERS $dagwood::KLIB_HEADERS
+    outputs $dagwood::COMPILE_COMMANDS
+    run {
+        bear -- $dagwood::CC $dagwood::DEBUG_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::BUILD_FOLDER/dagwood_debug
+    }
+}
+
+task fmt {
+    description "Run clang-format"
+    inputs $dagwood::SOURCE
+    outputs .clang-format
+    run {
+        set -e
+        clang-format -i $dagwood::fmt::inputs
+        touch $dagwood::fmt::outputs
+    }
+}
+
+command clean {
+    run {
+        set -ex
+        echo "Cleaning"
+        rm -rf $dagwood::BUILD_FOLDER $dagwood::bear::outputs
+    }
+}

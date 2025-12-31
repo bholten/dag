@@ -1,0 +1,67 @@
+project simple_project
+
+let S1_BUILD_DIR s1/build
+let S2_BUILD_DIR s2/build
+let S1_OUT [list $simple_project::S1_BUILD_DIR/1.out $simple_project::S1_BUILD_DIR/2.out $simple_project::S1_BUILD_DIR/3.out]
+
+task step_1 {
+    description "Step 1 Test - make a bunch of output files"
+    outputs $simple_project::S1_OUT
+    run {
+        set -ex
+        mkdir -p $simple_project::S1_BUILD_DIR
+        touch $simple_project::step_1::outputs
+    }
+}
+
+task step_2 {
+    description "Step 2 Test - depend on outputs of another task"
+    inputs  $simple_project::step_1::outputs
+    outputs $simple_project::S2_BUILD_DIR/1.out
+    run {
+        set -ex
+        echo "Running step 2!"
+        mkdir -p $simple_project::S2_BUILD_DIR
+        touch $simple_project::step_2::outputs
+    }
+}
+
+task step_3 {
+    description "Step 3 - depends explicitly on Step 2"
+    depends_on simple_project::step_2
+    run {
+        set -ex
+        echo "Depending on Step 2!"
+    }
+}
+
+task step_4 {
+    description "Step 4 - explicit depends_on + inputs are step 2's outputs"
+    depends_on simple_project::step_3
+    inputs $simple_project::step_2::outputs
+    run {
+        set -ex
+        echo "Final task!"
+    }
+}
+
+task step_5 {
+    description "Step 5 - check all tasks were successful"
+    depends_on simple_project::step_3 simple_project::step_4
+    inputs     $simple_project::step_1::outputs $simple_project::step_2::outputs
+    run {
+        set -ex
+        # Verify outputs from previous steps exist
+        test -e s1/build/1.out
+        test -e s1/build/2.out
+        test -e s1/build/3.out
+        test -e s2/build/1.out
+        echo "All outputs verified!"
+    }
+}
+
+command clean {
+    run {
+        rm -rf $simple_project::S1_BUILD_DIR $simple_project::S2_BUILD_DIR
+    }
+}

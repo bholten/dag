@@ -1,0 +1,11 @@
+project args_test
+
+config {
+  arg BUILD_TYPE debug
+  arg CC gcc
+}
+
+task show_args {
+  description "Show the build arguments"
+  run {echo "BUILD_TYPE=$args_test::BUILD_TYPE CC=$args_test::CC"}
+}
