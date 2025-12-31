@@ -1,0 +1,191 @@
+# Namespace feature tests
+# Tests: let variables, task/command attributes, dynamic task definitions
+
+project ns_test
+
+# ============================================================================
+# Test 1: Basic let variable substitution
+# ============================================================================
+let BUILD_DIR build
+let OUTPUT_FILE output.txt
+
+task test_let_vars {
+    description "Test let variable substitution in run script"
+    outputs $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
+    run {
+        mkdir -p $ns_test::BUILD_DIR
+        echo "let_vars_work" > $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
+    }
+}
+
+# ============================================================================
+# Test 2: Let variable with list value
+# ============================================================================
+let FILE_LIST [list file1.txt file2.txt file3.txt]
+
+task test_let_list {
+    description "Test let with list value"
+    outputs $ns_test::FILE_LIST
+    run {
+        touch $ns_test::tasks::test_let_list::outputs
+    }
+}
+
+# ============================================================================
+# Test 3: Task output reference in another task's inputs
+# ============================================================================
+task producer {
+    description "Producer task for output reference test"
+    outputs build/produced.txt
+    run {
+        mkdir -p build
+        echo "produced" > build/produced.txt
+    }
+}
+
+task consumer {
+    description "Consumer task - references producer's outputs"
+    inputs $ns_test::tasks::producer::outputs
+    outputs build/consumed.txt
+    run {
+        cat $ns_test::tasks::consumer::inputs > build/consumed.txt
+    }
+}
+
+# ============================================================================
+# Test 4: Task run script reference
+# ============================================================================
+task base_task {
+    description "Base task with a run script"
+    run {
+        echo "base_script_output"
+    }
+}
+
+task reference_run {
+    description "References another task's run script"
+    depends_on ns_test::base_task
+    run {
+        echo "The base script was: $ns_test::tasks::base_task::run"
+    }
+}
+
+# ============================================================================
+# Test 5: Dynamic task definition via proc
+# ============================================================================
+let COMPILER gcc
+let CFLAGS "-Wall -O2"
+
+proc define_compile_task {name source output} {
+    eval [subst {
+        task $name {
+            description "Compile $source"
+            inputs $source
+            outputs $output
+            run {
+                echo "$ns_test::COMPILER $ns_test::CFLAGS -c $source -o $output"
+            }
+        }
+    }]
+}
+
+define_compile_task compile_main src/main.c build/main.o
+define_compile_task compile_util src/util.c build/util.o
+
+task link_all {
+    description "Link compiled objects"
+    inputs $ns_test::tasks::compile_main::outputs $ns_test::tasks::compile_util::outputs
+    outputs build/program
+    run {
+        echo "Linking: $ns_test::tasks::link_all::inputs"
+    }
+}
+
+# ============================================================================
+# Test 6: Command attributes
+# ============================================================================
+command show_info {
+    description "Shows project information"
+    run {
+        echo "Project: ns_test"
+        echo "Build dir: $ns_test::BUILD_DIR"
+    }
+}
+
+task verify_command_attrs {
+    description "Verify command attributes are accessible"
+    run {
+        echo "Command description: $ns_test::commands::show_info::description"
+    }
+}
+
+# ============================================================================
+# Test 7: Nested namespace paths
+# ============================================================================
+task deep_reference {
+    description "Test deeply nested attribute reference"
+    depends_on ns_test::consumer
+    run {
+        echo "Consumer inputs: $ns_test::tasks::consumer::inputs"
+        echo "Consumer outputs: $ns_test::tasks::consumer::outputs"
+        echo "Producer outputs: $ns_test::tasks::producer::outputs"
+    }
+}
+
+# ============================================================================
+# Test 8: Self-referencing task attributes
+# ============================================================================
+task self_ref {
+    description "Self-referencing test"
+    outputs build/self.txt
+    run {
+        echo "My outputs are: $ns_test::tasks::self_ref::outputs"
+        echo "My description is: $ns_test::tasks::self_ref::description"
+        mkdir -p build
+        touch $ns_test::tasks::self_ref::outputs
+    }
+}
+
+# ============================================================================
+# Test 9: Variable not found - should preserve original
+# Note: Using single quotes so bash doesn't substitute $undefined as a shell var
+# ============================================================================
+task undefined_var {
+    description "Test undefined variable handling"
+    run {
+        echo 'Undefined: $undefined::variable'
+        echo 'Partial: $ns_test::nonexistent'
+    }
+}
+
+# ============================================================================
+# Test 10: Braced variable syntax ${...}
+# ============================================================================
+task braced_var {
+    description "Test braced variable syntax"
+    run {
+        echo "Braced: ${ns_test::BUILD_DIR}/subdir"
+    }
+}
+
+# ============================================================================
+# Test 11: Mixed content in run script
+# ============================================================================
+task mixed_content {
+    description "Test mixed content with shell variables"
+    run {
+        # Shell variables should be preserved
+        echo "LCL var: $ns_test::BUILD_DIR"
+        echo "Shell special: $$ $? $!"
+    }
+}
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+command clean {
+    description "Clean build artifacts"
+    run {
+        rm -rf $ns_test::BUILD_DIR build file1.txt file2.txt file3.txt
+    }
+}

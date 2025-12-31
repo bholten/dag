@@ -359,6 +359,199 @@ test_commands() {
 }
 
 # ============================================================================
+# Namespace Feature Tests
+# ============================================================================
+
+test_namespaces() {
+    log_section "Namespace Features"
+
+    local proj="$TEST_PROJECTS/namespace-test"
+    local output
+
+    # Clean up from any previous runs
+    rm -rf "$proj/build" "$proj/file1.txt" "$proj/file2.txt" "$proj/file3.txt"
+
+    # --- Test 1: Let variable substitution ---
+    run_test "let variables substitute in run script" \
+        "$DAGWOOD" -C "$proj" "ns_test::test_let_vars"
+
+    # Verify the output was created at the correct path
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ -f "$proj/build/output.txt" ]] && grep -q "let_vars_work" "$proj/build/output.txt"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "let variable path resolved correctly"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "let variable path not resolved (expected build/output.txt)"
+    fi
+
+    # --- Test 2: Let with list value ---
+    run_test "let with list value works" \
+        "$DAGWOOD" -C "$proj" "ns_test::test_let_list"
+
+    # Check that all three files were created (list was properly expanded)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ -f "$proj/file1.txt" ]] && [[ -f "$proj/file2.txt" ]] && [[ -f "$proj/file3.txt" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "list outputs expanded correctly"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "list outputs not expanded (expected file1.txt file2.txt file3.txt)"
+    fi
+
+    # --- Test 3: Task output reference in dry-run ---
+    output=$("$DAGWOOD" -C "$proj" --dry-run 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "consumer" && echo "$output" | grep -A5 "consumer" | grep -q "build/produced.txt"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "task output reference works in inputs"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "task output reference not resolved in consumer inputs"
+    fi
+
+    # --- Test 4: Task run reference in run script ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::reference_run" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "base_script_output"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "task run script reference substituted"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "task run script reference not substituted"
+    fi
+
+    # --- Test 5: Dynamic task definition ---
+    output=$("$DAGWOOD" -C "$proj" --dry-run 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "compile_main" && echo "$output" | grep -q "compile_util"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "dynamic task definitions created"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "dynamic task definitions not found"
+    fi
+
+    # Check dynamic task inputs/outputs
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -A3 "compile_main" | grep -q "src/main.c"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "dynamic task has correct inputs"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "dynamic task inputs not set correctly"
+    fi
+
+    # --- Test 6: Dynamic task output reference in link task ---
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -A5 "link_all" | grep -q "build/main.o"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "dynamic task outputs referenced in another task"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "dynamic task outputs not referenced correctly"
+    fi
+
+    # --- Test 7: Self-referencing task attributes ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::self_ref" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "My outputs are: build/self.txt"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "self-referencing outputs attribute works"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "self-referencing outputs attribute not working"
+    fi
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "My description is: Self-referencing test"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "self-referencing description attribute works"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "self-referencing description attribute not working"
+    fi
+
+    # --- Test 8: Command attribute reference ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::verify_command_attrs" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "Command description: Shows project information"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "command description attribute accessible"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "command description attribute not accessible"
+    fi
+
+    # --- Test 9: Deep nested reference ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::deep_reference" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "Producer outputs: build/produced.txt"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "deep nested attribute reference works"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "deep nested attribute reference failed"
+    fi
+
+    # --- Test 10: Undefined variable preserved ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::undefined_var" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q 'Undefined: $undefined::variable'; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "undefined variable preserved"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "undefined variable not preserved"
+    fi
+
+    # --- Test 11: Braced variable syntax ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::braced_var" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "Braced: build/subdir"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "braced variable syntax works"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "braced variable syntax failed"
+    fi
+
+    # --- Test 12: Mixed shell and LCL variables ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::mixed_content" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "LCL var: build"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "LCL variables substituted in mixed content"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "LCL variables not substituted in mixed content"
+    fi
+
+    # Shell special vars should be preserved for the shell to handle
+    TESTS_RUN=$((TESTS_RUN + 1))
+    # $$ will be the shell's PID (a number), so just check it runs
+    if echo "$output" | grep -qE "Shell special: [0-9]+"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "shell special variables preserved for shell"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "shell special variables not preserved"
+    fi
+
+    # --- Cleanup ---
+    "$DAGWOOD" -C "$proj" "ns_test::clean" >/dev/null 2>&1 || true
+}
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -378,6 +571,7 @@ main() {
     test_staleness
     test_error_handling
     test_commands
+    test_namespaces
 
     # Summary
     log_section "Summary"

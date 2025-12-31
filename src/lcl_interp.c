@@ -68,6 +68,144 @@ static char *make_qualified_name(const char *project, const char *name) {
   return qname;
 }
 
+/* Bug fixed here:
+ * Variable substitution using lcl_get for $var references
+ * This is different that core Lcl.
+ */
+static char *substitute_variables(lcl_interp *interp, const char *script) {
+  char *result = NULL;
+  size_t result_len = 0;
+  size_t result_cap = 0;
+  size_t script_len = strlen(script);
+  size_t i = 0;
+
+  while (i < script_len) {
+    if (script[i] == '$') {
+      size_t start = i + 1;
+      size_t end = start;
+
+      /* Handle ${...} form */
+      if (start < script_len && script[start] == '{') {
+        start++;
+        end = start;
+        while (end < script_len && script[end] != '}') end++;
+        if (end >= script_len) {
+          /* Unterminated - copy literally */
+          size_t need = result_len + (end - i) + 1;
+          if (need > result_cap) {
+            result_cap = need * 2;
+            result = realloc(result, result_cap);
+          }
+          memcpy(result + result_len, script + i, end - i);
+          result_len += end - i;
+          i = end;
+          continue;
+        }
+        size_t name_len = end - start;
+        char *varname = malloc(name_len + 1);
+        memcpy(varname, script + start, name_len);
+        varname[name_len] = '\0';
+
+        lcl_value *val = NULL;
+        if (lcl_get(interp, varname, &val) == LCL_OK && val) {
+          const char *val_str = lcl_value_to_string(val);
+          size_t val_len = strlen(val_str);
+          size_t need = result_len + val_len + 1;
+          if (need > result_cap) {
+            result_cap = need * 2;
+            result = realloc(result, result_cap);
+          }
+          memcpy(result + result_len, val_str, val_len);
+          result_len += val_len;
+          lcl_ref_dec(val);
+        }
+        free(varname);
+        i = end + 1;
+        continue;
+      }
+
+      /* Handle $name form */
+      while (end < script_len &&
+             (script[end] == '_' || script[end] == ':' ||
+              (script[end] >= 'a' && script[end] <= 'z') ||
+              (script[end] >= 'A' && script[end] <= 'Z') ||
+              (script[end] >= '0' && script[end] <= '9'))) {
+        end++;
+      }
+
+      if (end > start) {
+        size_t name_len = end - start;
+        char *varname = malloc(name_len + 1);
+        memcpy(varname, script + start, name_len);
+        varname[name_len] = '\0';
+
+        lcl_value *val = NULL;
+        int found = 0;
+        int rc = lcl_get(interp, varname, &val);
+        if (rc == LCL_OK && val) {
+          const char *val_str = lcl_value_to_string(val);
+          size_t val_len = strlen(val_str);
+          /* Only substitute if we got a non-empty value that doesn't
+           * look like a partial namespace path (starts with ::) */
+          if (val_len > 0 && !(val_len >= 2 && val_str[0] == ':' && val_str[1] == ':')) {
+            found = 1;
+            size_t need = result_len + val_len + 1;
+            if (need > result_cap) {
+              result_cap = need * 2;
+              result = realloc(result, result_cap);
+            }
+            memcpy(result + result_len, val_str, val_len);
+            result_len += val_len;
+          }
+          lcl_ref_dec(val);
+        }
+        if (!found) {
+          /* Variable not found or invalid - keep original */
+          size_t orig_len = end - i;
+          size_t need = result_len + orig_len + 1;
+          if (need > result_cap) {
+            result_cap = need * 2;
+            result = realloc(result, result_cap);
+          }
+          memcpy(result + result_len, script + i, orig_len);
+          result_len += orig_len;
+        }
+        free(varname);
+        i = end;
+        continue;
+      } else {
+        /* Bare $ */
+        size_t need = result_len + 2;
+        if (need > result_cap) {
+          result_cap = need * 2;
+          result = realloc(result, result_cap);
+        }
+        result[result_len++] = '$';
+        i++;
+        continue;
+      }
+    }
+
+    /* Regular character */
+    size_t need = result_len + 2;
+    if (need > result_cap) {
+      result_cap = need * 2;
+      result = realloc(result, result_cap);
+    }
+    result[result_len++] = script[i++];
+  }
+
+  if (result) {
+    size_t need = result_len + 1;
+    if (need > result_cap) {
+      result = realloc(result, need);
+    }
+    result[result_len] = '\0';
+    return result;
+  }
+  return strdup_safe(script);
+}
+
 static int c_platform_shell(lcl_interp *interp, int argc, lcl_value **argv,
                             lcl_value **out) {
   (void)interp;
@@ -387,9 +525,19 @@ static int c_project(lcl_interp *interp, int argc, lcl_value **argv,
   g_ctx.current_project = proj->name;
   g_ctx.project = proj;
 
-  char ns_cmd[256];
-  snprintf(ns_cmd, sizeof(ns_cmd), "namespace eval %s {}", name);
+  /* Create project namespace and sub-namespaces for tasks/commands */
+  char ns_cmd[512];
   lcl_value *ns_result = NULL;
+
+  snprintf(ns_cmd, sizeof(ns_cmd), "namespace eval %s {}", name);
+  lcl_eval_string(interp, ns_cmd, &ns_result);
+  if (ns_result) lcl_ref_dec(ns_result);
+
+  snprintf(ns_cmd, sizeof(ns_cmd), "namespace eval %s::tasks {}", name);
+  lcl_eval_string(interp, ns_cmd, &ns_result);
+  if (ns_result) lcl_ref_dec(ns_result);
+
+  snprintf(ns_cmd, sizeof(ns_cmd), "namespace eval %s::commands {}", name);
   lcl_eval_string(interp, ns_cmd, &ns_result);
   if (ns_result) lcl_ref_dec(ns_result);
 
@@ -522,6 +670,19 @@ static int c_let_var(lcl_interp *interp, int argc, lcl_value **argv,
   const char *name = lcl_value_to_string(argv[0]);
   lcl_value *value = argv[1];
 
+  /* Define in project namespace to avoid frame-local scoping issues */
+  lcl_value *proj_ns = NULL;
+  if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
+    /* Store the actual value (not just its string representation) */
+    lcl_ref_inc(value);
+    lcl_ns_def(proj_ns, name, value);
+    lcl_ref_dec(proj_ns);
+    lcl_ref_inc(value);
+    *out = value;
+    return LCL_RC_OK;
+  }
+
+  /* Fallback to old behavior if namespace lookup fails */
   char *qname = make_qualified_name(g_ctx.current_project, name);
   if (!qname) return LCL_RC_ERR;
 
@@ -565,6 +726,23 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
     final_value = lcl_value_to_string(cli_val);
   }
 
+  /* Define in project namespace to avoid frame-local scoping issues */
+  lcl_value *proj_ns = NULL;
+  if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
+    lcl_value *val = lcl_string_new(final_value);
+    if (!val) {
+      lcl_ref_dec(proj_ns);
+      if (cli_val) lcl_ref_dec(cli_val);
+      return LCL_RC_ERR;
+    }
+    lcl_ns_def(proj_ns, name, val);
+    lcl_ref_dec(proj_ns);
+    if (cli_val) lcl_ref_dec(cli_val);
+    *out = lcl_string_new(final_value);
+    return *out ? LCL_RC_OK : LCL_RC_ERR;
+  }
+
+  /* Fallback to old behavior if namespace lookup fails */
   char *qname = make_qualified_name(g_ctx.current_project, name);
   if (!qname) {
     if (cli_val) lcl_ref_dec(cli_val);
@@ -572,6 +750,12 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
   }
 
   lcl_value *val = lcl_string_new(final_value);
+  if (!val) {
+    free(qname);
+    if (cli_val) lcl_ref_dec(cli_val);
+    return LCL_RC_ERR;
+  }
+
   lcl_result res = lcl_define(interp, qname, val);
   free(qname);
 
@@ -582,84 +766,36 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
     return LCL_RC_ERR;
   }
 
-  *out = val;
-  return LCL_RC_OK;
+  *out = lcl_string_new(final_value);
+  return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
 static dagwood_task *g_current_task = NULL;
 
 static int c_task_inputs(lcl_interp *interp, int argc, lcl_value **argv,
                          lcl_value **out) {
+  (void)interp;
+
   if (!g_current_task) {
     fprintf(stderr, "[dagwood] inputs: not in task context\n");
     return LCL_RC_ERR;
   }
-
-  lcl_value *inputs_list = lcl_list_new();
 
   for (int i = 0; i < argc; i++) {
     size_t len = lcl_list_len(argv[i]);
     if (len > 0) {
       for (size_t j = 0; j < len; j++) {
         lcl_value *item = NULL;
-
         if (lcl_list_get(argv[i], j, &item) == LCL_OK && item) {
-          const char *input = lcl_value_to_string(item);
-          dagwood_task_add_input(g_current_task, strdup_safe(input));
-          lcl_value *str = lcl_string_new(input);
-          if (str) {
-            lcl_list_push(&inputs_list, str);
-            lcl_ref_dec(str);
-          }
+          dagwood_task_add_input(g_current_task,
+                                 strdup_safe(lcl_value_to_string(item)));
           lcl_ref_dec(item);
         }
       }
     } else {
-      const char *input = lcl_value_to_string(argv[i]);
-      dagwood_task_add_input(g_current_task, strdup_safe(input));
-      lcl_value *str = lcl_string_new(input);
-      if (str) {
-        lcl_list_push(&inputs_list, str);
-        lcl_ref_dec(str);
-      }
+      dagwood_task_add_input(g_current_task,
+                             strdup_safe(lcl_value_to_string(argv[i])));
     }
-  }
-
-  /* Define project::task::inputs variable immediately as space-joined string */
-  if (g_ctx.current_project && g_current_task->name) {
-    char qname[512];
-    snprintf(qname, sizeof(qname), "%s::%s::inputs", g_ctx.current_project,
-             g_current_task->name);
-
-    /* Convert list to space-joined string for shell compatibility */
-    size_t total_len = 0;
-    size_t count = lcl_list_len(inputs_list);
-    for (size_t i = 0; i < count; i++) {
-      lcl_value *item = NULL;
-      if (lcl_list_get(inputs_list, i, &item) == LCL_OK && item) {
-        total_len += strlen(lcl_value_to_string(item));
-        if (i < count - 1) total_len++; /* space */
-        lcl_ref_dec(item);
-      }
-    }
-
-    char *joined = malloc(total_len + 1);
-    if (joined) {
-      joined[0] = '\0';
-      for (size_t i = 0; i < count; i++) {
-        lcl_value *item = NULL;
-        if (lcl_list_get(inputs_list, i, &item) == LCL_OK && item) {
-          if (i > 0) strcat(joined, " ");
-          strcat(joined, lcl_value_to_string(item));
-          lcl_ref_dec(item);
-        }
-      }
-      lcl_define_take(interp, qname, lcl_string_new(joined));
-      free(joined);
-    }
-    lcl_ref_dec(inputs_list);
-  } else {
-    lcl_ref_dec(inputs_list);
   }
 
   *out = lcl_string_new("");
@@ -668,77 +804,28 @@ static int c_task_inputs(lcl_interp *interp, int argc, lcl_value **argv,
 
 static int c_task_outputs(lcl_interp *interp, int argc, lcl_value **argv,
                           lcl_value **out) {
+  (void)interp;
+
   if (!g_current_task) {
     fprintf(stderr, "[dagwood] outputs: not in task context\n");
     return LCL_RC_ERR;
   }
-
-  lcl_value *outputs_list = lcl_list_new();
 
   for (int i = 0; i < argc; i++) {
     size_t len = lcl_list_len(argv[i]);
     if (len > 0) {
       for (size_t j = 0; j < len; j++) {
         lcl_value *item = NULL;
-
         if (lcl_list_get(argv[i], j, &item) == LCL_OK && item) {
-          const char *output = lcl_value_to_string(item);
-          dagwood_task_add_output(g_current_task, strdup_safe(output));
-          lcl_value *str = lcl_string_new(output);
-          if (str) {
-            lcl_list_push(&outputs_list, str);
-            lcl_ref_dec(str);
-          }
+          dagwood_task_add_output(g_current_task,
+                                  strdup_safe(lcl_value_to_string(item)));
           lcl_ref_dec(item);
         }
       }
     } else {
-      const char *output = lcl_value_to_string(argv[i]);
-      dagwood_task_add_output(g_current_task, strdup_safe(output));
-      lcl_value *str = lcl_string_new(output);
-      if (str) {
-        lcl_list_push(&outputs_list, str);
-        lcl_ref_dec(str);
-      }
+      dagwood_task_add_output(g_current_task,
+                              strdup_safe(lcl_value_to_string(argv[i])));
     }
-  }
-
-  /* Define project::task::outputs variable immediately as space-joined string
-   */
-  if (g_ctx.current_project && g_current_task->name) {
-    char qname[512];
-    snprintf(qname, sizeof(qname), "%s::%s::outputs", g_ctx.current_project,
-             g_current_task->name);
-
-    /* Convert list to space-joined string for shell compatibility */
-    size_t total_len = 0;
-    size_t count = lcl_list_len(outputs_list);
-    for (size_t i = 0; i < count; i++) {
-      lcl_value *item = NULL;
-      if (lcl_list_get(outputs_list, i, &item) == LCL_OK && item) {
-        total_len += strlen(lcl_value_to_string(item));
-        if (i < count - 1) total_len++; /* space */
-        lcl_ref_dec(item);
-      }
-    }
-
-    char *joined = malloc(total_len + 1);
-    if (joined) {
-      joined[0] = '\0';
-      for (size_t i = 0; i < count; i++) {
-        lcl_value *item = NULL;
-        if (lcl_list_get(outputs_list, i, &item) == LCL_OK && item) {
-          if (i > 0) strcat(joined, " ");
-          strcat(joined, lcl_value_to_string(item));
-          lcl_ref_dec(item);
-        }
-      }
-      lcl_define_take(interp, qname, lcl_string_new(joined));
-      free(joined);
-    }
-    lcl_ref_dec(outputs_list);
-  } else {
-    lcl_ref_dec(outputs_list);
   }
 
   *out = lcl_string_new("");
@@ -790,26 +877,9 @@ static int c_task_run(lcl_interp *interp, int argc, lcl_value **argv,
 
   const char *script = lcl_value_to_string(argv[0]);
 
-  /* Apply variable substitution using LCL's subst command */
-  size_t cmd_len = strlen("subst {") + strlen(script) + strlen("}") + 1;
-  char *subst_cmd = malloc(cmd_len);
-  if (!subst_cmd) {
-    return LCL_RC_ERR;
-  }
-  snprintf(subst_cmd, cmd_len, "subst {%s}", script);
-
-  lcl_value *subst_result = NULL;
-  int rc = lcl_eval_string(interp, subst_cmd, &subst_result);
-  free(subst_cmd);
-
-  if (rc == LCL_RC_OK && subst_result) {
-    const char *substituted = lcl_value_to_string(subst_result);
-    g_current_task->run = strdup_safe(substituted);
-    lcl_ref_dec(subst_result);
-  } else {
-    /* Fallback to unsubstituted if subst fails */
-    g_current_task->run = strdup_safe(script);
-  }
+  /* Store raw script - substitution will happen in c_task after namespace is
+   * set up */
+  g_current_task->run = strdup_safe(script);
 
   *out = lcl_string_new(g_current_task->run);
   return *out ? LCL_RC_OK : LCL_RC_ERR;
@@ -897,42 +967,71 @@ static int c_task(lcl_interp *interp, int argc, lcl_value **argv,
 
   t_map_set(g_ctx.task_registry, task->id, task);
 
-  if (task->inputs && s_arr_len(task->inputs) > 0) {
-    char qname[512];
-    snprintf(qname, sizeof(qname), "%s::%s::inputs", g_ctx.current_project,
-             name);
+  /* Create task namespace and define attributes inside it.
+   * Using namespace eval + lcl_ns_def ensures variables are defined globally,
+   * not in the current proc's local scope. */
+  {
+    char ns_cmd[512];
+    char ns_path[512];
+    lcl_value *ns_result = NULL;
+    lcl_value *task_ns = NULL;
 
-    lcl_value *inputs_list = lcl_list_new();
-    for (size_t i = 0; i < s_arr_len(task->inputs); i++) {
-      lcl_value *item = lcl_string_new(s_arr_get(task->inputs, i));
-      if (item) {
-        lcl_list_push(&inputs_list, item);
-        lcl_ref_dec(item);
+    /* Create the task namespace: project::tasks::taskname */
+    snprintf(ns_cmd, sizeof(ns_cmd), "namespace eval %s::tasks::%s {}",
+             g_ctx.current_project, name);
+    lcl_eval_string(interp, ns_cmd, &ns_result);
+    if (ns_result) lcl_ref_dec(ns_result);
+
+    /* Get the task namespace and define attributes in it */
+    snprintf(ns_path, sizeof(ns_path), "%s::tasks::%s",
+             g_ctx.current_project, name);
+    if (lcl_get(interp, ns_path, &task_ns) == LCL_OK && task_ns) {
+      /* Define inputs if present - as a list for proper iteration */
+      if (task->inputs && s_arr_len(task->inputs) > 0) {
+        lcl_value *inputs_list = lcl_list_new();
+        for (size_t i = 0; i < s_arr_len(task->inputs); i++) {
+          lcl_value *item = lcl_string_new(s_arr_get(task->inputs, i));
+          lcl_list_push(&inputs_list, item);
+          lcl_ref_dec(item);
+        }
+        lcl_ns_def(task_ns, "inputs", inputs_list);
       }
+
+      /* Define outputs if present - as a list for proper iteration */
+      if (task->outputs && s_arr_len(task->outputs) > 0) {
+        lcl_value *outputs_list = lcl_list_new();
+        for (size_t i = 0; i < s_arr_len(task->outputs); i++) {
+          lcl_value *item = lcl_string_new(s_arr_get(task->outputs, i));
+          lcl_list_push(&outputs_list, item);
+          lcl_ref_dec(item);
+        }
+        lcl_ns_def(task_ns, "outputs", outputs_list);
+      }
+
+      /* Define description if present */
+      if (task->description) {
+        lcl_ns_def(task_ns, "description", lcl_string_new(task->description));
+      }
+
+      lcl_ref_dec(task_ns);
     }
-    lcl_define_take(interp, qname, inputs_list);
   }
 
-  if (task->outputs && s_arr_len(task->outputs) > 0) {
-    char qname[512];
-    snprintf(qname, sizeof(qname), "%s::%s::outputs", g_ctx.current_project,
-             name);
-
-    lcl_value *outputs_list = lcl_list_new();
-    for (size_t i = 0; i < s_arr_len(task->outputs); i++) {
-      lcl_value *item = lcl_string_new(s_arr_get(task->outputs, i));
-      if (item) {
-        lcl_list_push(&outputs_list, item);
-        lcl_ref_dec(item);
-      }
-    }
-    lcl_define_take(interp, qname, outputs_list);
-  }
-
+  /* Now that task namespace is set up, substitute variables in run script */
   if (task->run) {
-    char qname[512];
-    snprintf(qname, sizeof(qname), "%s::%s::run", g_ctx.current_project, name);
-    lcl_define_take(interp, qname, lcl_string_new(task->run));
+    char *substituted = substitute_variables(interp, task->run);
+    free(task->run);
+    task->run = substituted;
+
+    /* Also update the run attribute in the namespace */
+    char ns_path[512];
+    lcl_value *task_ns = NULL;
+    snprintf(ns_path, sizeof(ns_path), "%s::tasks::%s", g_ctx.current_project,
+             name);
+    if (lcl_get(interp, ns_path, &task_ns) == LCL_OK && task_ns) {
+      lcl_ns_def(task_ns, "run", lcl_string_new(task->run));
+      lcl_ref_dec(task_ns);
+    }
   }
 
   *out = lcl_string_new(task->id);
@@ -979,6 +1078,49 @@ static int c_command(lcl_interp *interp, int argc, lcl_value **argv,
   }
 
   t_map_set(g_ctx.command_registry, task->id, task);
+
+  /* Create command namespace and define attributes inside it */
+  {
+    char ns_cmd[512];
+    char ns_path[512];
+    lcl_value *ns_result = NULL;
+    lcl_value *cmd_ns = NULL;
+
+    /* Create the command namespace: project::commands::cmdname */
+    snprintf(ns_cmd, sizeof(ns_cmd), "namespace eval %s::commands::%s {}",
+             g_ctx.current_project, name);
+    lcl_eval_string(interp, ns_cmd, &ns_result);
+    if (ns_result) lcl_ref_dec(ns_result);
+
+    /* Get the command namespace and define attributes in it */
+    snprintf(ns_path, sizeof(ns_path), "%s::commands::%s",
+             g_ctx.current_project, name);
+    if (lcl_get(interp, ns_path, &cmd_ns) == LCL_OK && cmd_ns) {
+      /* Define description if present */
+      if (task->description) {
+        lcl_ns_def(cmd_ns, "description", lcl_string_new(task->description));
+      }
+
+      lcl_ref_dec(cmd_ns);
+    }
+  }
+
+  /* Substitute variables in run script */
+  if (task->run) {
+    char *substituted = substitute_variables(interp, task->run);
+    free(task->run);
+    task->run = substituted;
+
+    /* Update the run attribute in the namespace */
+    char ns_path[512];
+    lcl_value *cmd_ns = NULL;
+    snprintf(ns_path, sizeof(ns_path), "%s::commands::%s", g_ctx.current_project,
+             name);
+    if (lcl_get(interp, ns_path, &cmd_ns) == LCL_OK && cmd_ns) {
+      lcl_ns_def(cmd_ns, "run", lcl_string_new(task->run));
+      lcl_ref_dec(cmd_ns);
+    }
+  }
 
   *out = lcl_string_new(task->id);
   return *out ? LCL_RC_OK : LCL_RC_ERR;

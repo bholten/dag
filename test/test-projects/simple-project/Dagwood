@@ -10,19 +10,19 @@ task step_1 {
     run {
         set -ex
         mkdir -p $simple_project::S1_BUILD_DIR
-        touch $simple_project::step_1::outputs
+        touch $simple_project::tasks::step_1::outputs
     }
 }
 
 task step_2 {
     description "Step 2 Test - depend on outputs of another task"
-    inputs  $simple_project::step_1::outputs
+    inputs  $simple_project::tasks::step_1::outputs
     outputs $simple_project::S2_BUILD_DIR/1.out
     run {
         set -ex
         echo "Running step 2!"
         mkdir -p $simple_project::S2_BUILD_DIR
-        touch $simple_project::step_2::outputs
+        touch $simple_project::tasks::step_2::outputs
     }
 }
 
@@ -38,7 +38,7 @@ task step_3 {
 task step_4 {
     description "Step 4 - explicit depends_on + inputs are step 2's outputs"
     depends_on simple_project::step_3
-    inputs $simple_project::step_2::outputs
+    inputs $simple_project::tasks::step_2::outputs
     run {
         set -ex
         echo "Final task!"
@@ -48,7 +48,7 @@ task step_4 {
 task step_5 {
     description "Step 5 - check all tasks were successful"
     depends_on simple_project::step_3 simple_project::step_4
-    inputs     $simple_project::step_1::outputs $simple_project::step_2::outputs
+    inputs     $simple_project::tasks::step_1::outputs $simple_project::tasks::step_2::outputs
     run {
         set -ex
         # Verify outputs from previous steps exist
