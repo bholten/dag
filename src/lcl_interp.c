@@ -19,8 +19,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <lcl-io.h>
 #include <lcl.h>
+#include <lcl-io.h>
 
 #include "dagwood.h"
 #include "data.h"
