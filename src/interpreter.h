@@ -10,7 +10,6 @@ typedef enum interp_result { INTERP_OK, INTERP_ERROR } interp_result;
 interpreter *interpreter_new(void);
 void interpreter_delete(interpreter *interp);
 
-/* Set a CLI argument (KEY=value from command line) */
 void interpreter_set_cli_arg(interpreter *interp, const char *name,
                              const char *value);
 

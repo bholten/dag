@@ -1,0 +1,275 @@
+# Dagwood DSL - LCL Implementation
+# This file is loaded automatically by the Dagwood C runtime.
+# The C side provides special forms: `project`, `import`
+
+# Global registry - initialize only once
+# catch returns 1 on error (not initialized), 0 on success (already initialized)
+let _dagwood_needs_init [catch { getvar dagwood::projects } _unused]
+
+if {== $_dagwood_needs_init 1} {
+    namespace eval dagwood {
+        var projects [list]
+        var imports [dict]
+        var primary [list]
+    }
+}
+
+# Helper: split qualified name "project::taskname" into [project taskname]
+proc _split_qualified {qualified_name} {
+    let idx [String::find $qualified_name "::"]
+    if {< $idx 0} {
+        error "Invalid qualified name (missing ::): $qualified_name"
+    }
+    let proj [String::range $qualified_name 0 $idx]
+    let rest [String::range $qualified_name [+ $idx 2] [String::length $qualified_name]]
+    return [list $proj $rest]
+}
+
+# Internal project generator - returns code to be eval'd by C special form
+proc _project {project_name} {
+    let syntax [quasiquote {
+        # Register this project
+        set! dagwood::projects [List::push $dagwood::projects ,project_name]
+
+        namespace eval ,project_name {
+            var _config [dict]
+            var _tasks [dict]
+            var _commands [dict]
+
+            proc config_impl {body} {
+                proc always_run {_always_run} {
+                    set! _config [put $_config always_run $_always_run]
+                }
+
+                proc description {_description} {
+                    set! _config [put $_config description $_description]
+                }
+                
+                proc shell {_shell} {
+                    set! _config [put $_config shell $_shell]
+                }
+
+                proc shell_arg {_shell_arg} {
+                    set! _config [put $_config shell_arg $_shell_arg]
+                }
+
+                eval $body
+
+                return $_config
+            }
+
+            proc task_impl {task_name body} {
+                var _task [dict]
+
+                proc always_run {_always_run} {
+                    set! _task [put $_task always_run $_always_run]
+                }
+    
+                proc depends_on {_depends_on} {
+                    set! _task [put $_task depends-on $_depends_on]
+                }
+            
+                proc description {_description} {
+                    set! _task [put $_task description $_description]
+                }
+            
+                proc inputs {_inputs} {
+                    set! _task [put $_task inputs $_inputs]
+                }
+    
+                proc outputs {_outputs} {
+                    set! _task [put $_task outputs $_outputs]
+                }
+                
+                proc run {_run} {
+                    set! _task [put $_task run $_run]
+                }
+                
+                eval $body
+
+                set! _tasks [put $_tasks $task_name $_task]
+
+                return $_task
+            }
+
+            proc command_impl {command_name body} {
+                var _command [dict]
+
+                proc description {_description} {
+                    set! _command [put $_command description $_description]
+                }
+            
+                proc run {_run} {
+                    set! _command [put $_command run $_run]
+                }
+
+                eval $body
+                
+                set! _commands [put $_commands $command_name $_command]
+                
+                return $_command                
+            }
+        }
+
+        proc config {body} {
+            ,{project_name}::config_impl $body
+        }
+        
+        proc task {name body} {
+            ,{project_name}::task_impl $name $body
+        }
+
+        proc command {name body} {
+            ,{project_name}::command_impl $name $body
+        }
+    }]
+
+    return $syntax
+}
+
+# ===========================================================================
+# Import functionality
+# ===========================================================================
+
+# _import path - loads a Dagwood file, returns code to eval
+proc _import {path} {
+    return [quasiquote {
+        let _before_import [len $dagwood::projects]
+        load ,path
+        let _after_import [len $dagwood::projects]
+        if {> $_after_import $_before_import} {
+            let _imported_name [get $dagwood::projects [- $_after_import 1]]
+            set! dagwood::imports [put $dagwood::imports $_imported_name ,path]
+        }
+    }]
+}
+
+# _import_as alias path - loads with alias (for future use)
+proc _import_as {alias path} {
+    return [quasiquote {
+        let _before_import [len $dagwood::projects]
+        load ,path
+        let _after_import [len $dagwood::projects]
+        if {> $_after_import $_before_import} {
+            let _imported_name [get $dagwood::projects [- $_after_import 1]]
+            set! dagwood::imports [put $dagwood::imports ,alias $_imported_name]
+        }
+    }]
+}
+
+# ===========================================================================
+# Task modification helpers
+# ===========================================================================
+
+# Get a task dict from a project
+# Usage: task_get project::taskname
+proc task_get {qualified_name} {
+    let parts [_split_qualified $qualified_name]
+    let proj [get $parts 0]
+    let task_name [get $parts 1]
+
+    # Get the task from the project's _tasks dict
+    let tasks_var "${proj}::_tasks"
+    let tasks [getvar $tasks_var]
+    return [get $tasks $task_name]
+}
+
+# Set/update a task in a project
+# Usage: task_set project::taskname new_task_dict
+proc task_set {qualified_name task_dict} {
+    let parts [_split_qualified $qualified_name]
+    let proj [get $parts 0]
+    let task_name [get $parts 1]
+
+    # Update the project's _tasks dict
+    let tasks_var "${proj}::_tasks"
+    let tasks [getvar $tasks_var]
+    let new_tasks [put $tasks $task_name $task_dict]
+
+    # This is tricky - we need to set! the namespace variable
+    # For now, return code to eval
+    return [quasiquote {
+        set! ,{tasks_var} ,new_tasks
+    }]
+}
+
+# Override a task completely
+# Usage: task_override project::taskname { description "..." run {...} }
+proc task_override {qualified_name body} {
+    let parts [_split_qualified $qualified_name]
+    let proj [get $parts 0]
+    let task_name [get $parts 1]
+
+    # Use the project's task_impl to create the new task
+    return [quasiquote {
+        ,{proj}::task_impl ,task_name ,body
+    }]
+}
+
+# Extend/modify an existing task
+# Usage: task_extend project::taskname { depends_on additional_dep }
+proc task_extend {qualified_name body} {
+    let parts [_split_qualified $qualified_name]
+    let proj [get $parts 0]
+    let task_name [get $parts 1]
+
+    return [quasiquote {
+        # Get the existing task
+        let _existing [get $,{proj}::_tasks ,task_name]
+        var _task $_existing
+
+        # Define modification procs that merge rather than replace
+        proc always_run {val} {
+            set! _task [put $_task always_run $val]
+        }
+        proc depends_on {val} {
+            # Append to existing depends-on
+            let existing [get $_task depends-on]
+            if {empty? $existing} {
+                set! _task [put $_task depends-on $val]
+            } else {
+                set! _task [put $_task depends-on [list $existing $val]]
+            }
+        }
+        proc description {val} {
+            set! _task [put $_task description $val]
+        }
+        proc inputs {val} {
+            # Append to existing inputs
+            let existing [get $_task inputs]
+            if {empty? $existing} {
+                set! _task [put $_task inputs $val]
+            } else {
+                set! _task [put $_task inputs [list $existing $val]]
+            }
+        }
+        proc outputs {val} {
+            let existing [get $_task outputs]
+            if {empty? $existing} {
+                set! _task [put $_task outputs $val]
+            } else {
+                set! _task [put $_task outputs [list $existing $val]]
+            }
+        }
+        proc run {val} {
+            set! _task [put $_task run $val]
+        }
+
+        # Apply the modifications
+        eval ,body
+
+        # Store back
+        set! ,{proj}::_tasks [put $,{proj}::_tasks ,task_name $_task]
+    }]
+}
+
+# Disable a task (remove from build graph)
+proc task_disable {qualified_name} {
+    let parts [_split_qualified $qualified_name]
+    let proj [get $parts 0]
+    let task_name [get $parts 1]
+
+    return [quasiquote {
+        set! ,{proj}::_tasks [del $,{proj}::_tasks ,task_name]
+    }]
+}

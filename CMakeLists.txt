@@ -13,7 +13,6 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(DAGWOOD_COMPILE_OPTIONS -Wall -Wextra -D_POSIX_C_SOURCE=200809L)
 
-# Use local LCL submodule with IO extension
 set(LCL_BUILD_IO ON CACHE BOOL "Build LCL IO extension for Dagwood" FORCE)
 set(LCL_BUILD_CLI OFF CACHE BOOL "Don't build LCL CLI" FORCE)
 set(LCL_BUILD_SHARED OFF CACHE BOOL "Don't build shared LCL" FORCE)
@@ -24,7 +23,23 @@ if(DAGWOOD_ENABLE_ASAN)
   set(DAGWOOD_LINK_OPTIONS -fsanitize=address,undefined)
 endif()
 
-# Dagwood sources
+set(DSL_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/lib/dagwood.lcl)
+set(DSL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/dagwood_dsl.h)
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
+
+add_custom_command(
+  OUTPUT ${DSL_HEADER}
+  COMMAND xxd -i lib/dagwood.lcl > ${DSL_HEADER}.tmp
+  COMMAND sed -i "s/unsigned char/static const unsigned char/\; s/unsigned int/static const unsigned int/\; s/lib_dagwood_lcl/dagwood_dsl_lcl/g" ${DSL_HEADER}.tmp
+  COMMAND ${CMAKE_COMMAND} -E rename ${DSL_HEADER}.tmp ${DSL_HEADER}
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS ${DSL_SOURCE}
+  COMMENT "Generating embedded DSL header from lib/dagwood.lcl"
+)
+
+add_custom_target(generate_dsl_header DEPENDS ${DSL_HEADER})
+
 set(DAGWOOD_SOURCES
   src/lcl_interp.c
   src/main.c
@@ -41,25 +56,25 @@ set(DAGWOOD_SOURCES
   src/p_map.c
 )
 
-# Main executable
 add_executable(dagwood ${DAGWOOD_SOURCES})
 
 target_compile_options(dagwood PRIVATE ${DAGWOOD_COMPILE_OPTIONS})
 
 target_include_directories(dagwood PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-io/include
 )
 
 target_link_libraries(dagwood PRIVATE lcl_static lcl_io)
 
+add_dependencies(dagwood generate_dsl_header)
+
 if(DAGWOOD_ENABLE_ASAN)
   target_link_options(dagwood PRIVATE ${DAGWOOD_LINK_OPTIONS})
 endif()
 
-# Test executable for data structures
 if(DAGWOOD_BUILD_TESTS)
-  # Data structure sources (without main.c and interpreter)
   set(DAGWOOD_DATA_SOURCES
     src/s_arr.c
     src/t_arr.c
@@ -88,5 +103,4 @@ if(DAGWOOD_BUILD_TESTS)
   endif()
 endif()
 
-# Install
 install(TARGETS dagwood RUNTIME DESTINATION bin)

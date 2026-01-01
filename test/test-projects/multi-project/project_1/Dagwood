@@ -1,7 +1,7 @@
 project project_1
 
-let TASK_1_BUILD_DIR task_1/build
-let TASK_1_OUT $project_1::TASK_1_BUILD_DIR/task_1.out
+def TASK_1_BUILD_DIR task_1/build
+def TASK_1_OUT $project_1::TASK_1_BUILD_DIR/task_1.out
 
 task task_1 {
     outputs $project_1::TASK_1_OUT
@@ -12,11 +12,11 @@ task task_1 {
     }
 }
 
-let TASK_2_BUILD_DIR task_2/build
+def TASK_2_BUILD_DIR task_2/build
 
 task task_2 {
     inputs $project_1::TASK_1_OUT
-    outputs $project_1::TASK_2_BUILD_DIR/task_2.out1 $project_1::TASK_2_BUILD_DIR/task_2.out2 $project_1::TASK_2_BUILD_DIR/task_2.out3
+    outputs [list $project_1::TASK_2_BUILD_DIR/task_2.out1 $project_1::TASK_2_BUILD_DIR/task_2.out2 $project_1::TASK_2_BUILD_DIR/task_2.out3]
     run {
         set -ex
         mkdir -p task_2/build
