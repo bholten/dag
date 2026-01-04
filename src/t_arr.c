@@ -11,7 +11,9 @@ struct t_arr {
 t_arr *t_arr_new(void) {
   struct t_arr *arr = malloc(sizeof(*arr));
 
-  if (!arr) return NULL;
+  if (!arr) {
+    return NULL;
+  }
 
   arr->data = NULL;
   arr->len = 0;
@@ -20,7 +22,9 @@ t_arr *t_arr_new(void) {
 }
 
 void t_arr_delete(t_arr *arr) {
-  if (!arr) return;
+  if (!arr) {
+    return;
+  }
   free(arr->data);
   free(arr);
 }
@@ -29,7 +33,9 @@ void t_arr_push(t_arr *arr, const dagwood_task *task) {
   if (arr->len >= arr->cap) {
     size_t new_cap = arr->cap == 0 ? 4 : arr->cap * 2;
     dagwood_task **new_data = realloc(arr->data, new_cap * sizeof(*new_data));
-    if (!new_data) return;
+    if (!new_data) {
+      return;
+    }
     arr->data = new_data;
     arr->cap = new_cap;
   }
@@ -37,12 +43,16 @@ void t_arr_push(t_arr *arr, const dagwood_task *task) {
 }
 
 dagwood_task *t_arr_pop(t_arr *arr) {
-  if (arr->len == 0) return NULL;
+  if (arr->len == 0) {
+    return NULL;
+  }
   return arr->data[--arr->len];
 }
 
 dagwood_task *t_arr_get(t_arr *arr, size_t index) {
-  if (index >= arr->len) return NULL;
+  if (index >= arr->len) {
+    return NULL;
+  }
   return arr->data[index];
 }
 

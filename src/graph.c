@@ -63,7 +63,9 @@ dagwood_graph *dagwood_graph_new(t_map *task_registry) {
        i++) {
     dagwood_task *t = t_map_value(task_registry, i);
 
-    if (!t) continue;
+    if (!t) {
+      continue;
+    }
 
     t_arr_push(tasks, t);
     t_map_set(task_by_name, t->id, t);
@@ -71,7 +73,9 @@ dagwood_graph *dagwood_graph_new(t_map *task_registry) {
     for (size_t k = 0; k < s_arr_len(t->outputs); k++) {
       const char *output = s_arr_get(t->outputs, k);
 
-      if (!output) continue;
+      if (!output) {
+        continue;
+      }
 
       t_map_set(task_by_output, output, t);
     }
@@ -104,7 +108,9 @@ static void build_graph(dagwood_graph *g) {
       const char *dep_name = s_arr_get(t->depends_on, j);
       dagwood_task *dep = t_map_get(g->task_by_name, dep_name);
 
-      if (!dep) continue;
+      if (!dep) {
+        continue;
+      }
 
       dagwood_task_add_edge(t, dep);
     }
@@ -113,7 +119,9 @@ static void build_graph(dagwood_graph *g) {
       const char *input = s_arr_get(t->inputs, k);
       dagwood_task *dep = t_map_get(g->task_by_output, input);
 
-      if (!dep) continue;
+      if (!dep) {
+        continue;
+      }
 
       dagwood_task_add_edge(t, dep);
     }
@@ -123,7 +131,9 @@ static void build_graph(dagwood_graph *g) {
 }
 
 static bool task_stale(dagwood_graph *g, dagwood_task *task) {
-  if (g->force_run) return true;
+  if (g->force_run) {
+    return true;
+  }
 
   task_state memo_value = ts_map_get(g->memo, task->name);
 
@@ -153,10 +163,14 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
     /* Has depends_on: stale if any dependency is stale */
     for (size_t i = 0; i < s_arr_len(task->depends_on); i++) {
       const char *dep_name = s_arr_get(task->depends_on, i);
-      if (!dep_name) continue;
+      if (!dep_name) {
+        continue;
+      }
 
       dagwood_task *dep = t_map_get(g->task_by_name, dep_name);
-      if (!dep) continue;
+      if (!dep) {
+        continue;
+      }
 
       if (task_stale(g, dep)) {
         ts_map_set(g->memo, task->name, TASK_STALE);
@@ -233,7 +247,9 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
 }
 
 static bool run_layer(dagwood_graph *g, t_arr *layer) {
-  if (!g->graph_built) return false;
+  if (!g->graph_built) {
+    return false;
+  }
 
   size_t count = t_arr_len(layer);
   pid_t pids[count];
@@ -316,7 +332,9 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
 bool dagwood_graph_execute_task(dagwood_graph *g, const char *task_name) {
   dagwood_task *task = t_map_get(g->task_by_name, task_name);
 
-  if (!task) return false;
+  if (!task) {
+    return false;
+  }
 
   if (!g->graph_built) {
     build_graph(g);
@@ -460,12 +478,16 @@ void dagwood_graph_to_dot(dagwood_graph *g) {
   for (size_t i = 0; i < t_arr_len(g->tasks); i++) {
     dagwood_task *t = t_arr_get(g->tasks, i);
 
-    if (!t) continue;
+    if (!t) {
+      continue;
+    }
 
     for (size_t j = 0; j < t_arr_len(t->edges); j++) {
       dagwood_task *e = t_arr_get(t->edges, j);
 
-      if (!e) continue;
+      if (!e) {
+        continue;
+      }
 
       printf("  \"%s\" -> \"%s\";\n", t->id, e->id);
     }

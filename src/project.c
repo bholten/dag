@@ -6,7 +6,9 @@
 
 dagwood_project *dagwood_project_new(void) {
   dagwood_project *project = calloc(1, sizeof(*project));
-  if (!project) return NULL;
+  if (!project) {
+    return NULL;
+  }
 
   project->name = "default_project";
   project->shell = dagwood_platform_shell();

@@ -11,7 +11,9 @@ struct t_layers {
 t_layers *t_layers_new(void) {
   t_layers *layers = malloc(sizeof(*layers));
 
-  if (!layers) return NULL;
+  if (!layers) {
+    return NULL;
+  }
 
   layers->data = NULL;
   layers->len = 0;
@@ -23,11 +25,15 @@ t_layers *t_layers_new(void) {
 void t_layers_delete(t_layers *layers) {
   size_t i;
 
-  if (!layers) return;
+  if (!layers) {
+    return;
+  }
 
   for (i = 0; i < layers->len; i++) {
     t_arr *arr = layers->data[i];
-    if (arr) t_arr_delete(arr);
+    if (arr) {
+      t_arr_delete(arr);
+    }
   }
 
   free(layers->data);
@@ -38,7 +44,9 @@ void t_layers_push(t_layers *layers, const t_arr *layer) {
   if (layers->len >= layers->cap) {
     size_t new_cap = layers->cap == 0 ? 4 : layers->cap * 2;
     t_arr **new_data = realloc(layers->data, new_cap * sizeof(*new_data));
-    if (!new_data) return;
+    if (!new_data) {
+      return;
+    }
     layers->data = new_data;
     layers->cap = new_cap;
   }
@@ -50,11 +58,15 @@ size_t t_layers_len(t_layers *layers) {
 }
 
 t_arr *t_layers_get(t_layers *layers, size_t index) {
-  if (index >= layers->len) return NULL;
+  if (index >= layers->len) {
+    return NULL;
+  }
   return layers->data[index];
 }
 
 t_arr *t_layers_pop(t_layers *layers) {
-  if (layers->len == 0) return NULL;
+  if (layers->len == 0) {
+    return NULL;
+  }
   return layers->data[--layers->len];
 }

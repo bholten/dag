@@ -115,7 +115,9 @@ typedef struct {
 
 static dagwood_env *env_new(const char *file) {
   dagwood_env *env = calloc(1, sizeof(*env));
-  if (!env) return NULL;
+  if (!env) {
+    return NULL;
+  }
 
   env->interp = interpreter_new();
   if (!env->interp) {
@@ -143,7 +145,9 @@ static dagwood_env *env_new(const char *file) {
 }
 
 static void env_delete(dagwood_env *env) {
-  if (!env) return;
+  if (!env) {
+    return;
+  }
   if (g_graph) {
     dagwood_graph_delete(g_graph);
     g_graph = NULL;
@@ -165,9 +169,13 @@ static int env_build_graph(dagwood_env *env) {
 /* Look up task, falling back to command registry if needed */
 static dagwood_task *env_find_task(dagwood_env *env, const char *name) {
   dagwood_task *task = t_map_get(env->tasks, name);
-  if (task) return task;
+  if (task) {
+    return task;
+  }
 
-  if (!env->commands) return NULL;
+  if (!env->commands) {
+    return NULL;
+  }
 
   task = t_map_get(env->commands, name);
   if (task) {
@@ -184,7 +192,9 @@ static dagwood_task *env_find_task(dagwood_env *env, const char *name) {
 
 static int cmd_list(const char *file) {
   dagwood_env *env = env_new(file);
-  if (!env) return EXIT_FAILURE;
+  if (!env) {
+    return EXIT_FAILURE;
+  }
 
   interpreter_list_all(env->interp);
   env_delete(env);
@@ -193,7 +203,9 @@ static int cmd_list(const char *file) {
 
 static int cmd_dot(const char *file) {
   dagwood_env *env = env_new(file);
-  if (!env) return EXIT_FAILURE;
+  if (!env) {
+    return EXIT_FAILURE;
+  }
 
   if (env_build_graph(env) < 0) {
     env_delete(env);
@@ -207,7 +219,9 @@ static int cmd_dot(const char *file) {
 
 static int cmd_dry_run(const char *file) {
   dagwood_env *env = env_new(file);
-  if (!env) return EXIT_FAILURE;
+  if (!env) {
+    return EXIT_FAILURE;
+  }
 
   if (env_build_graph(env) < 0) {
     env_delete(env);
@@ -228,7 +242,9 @@ static int cmd_repl(void) {
 
 static int cmd_run_all(const char *file) {
   dagwood_env *env = env_new(file);
-  if (!env) return EXIT_FAILURE;
+  if (!env) {
+    return EXIT_FAILURE;
+  }
 
   if (env_build_graph(env) < 0) {
     env_delete(env);
@@ -242,7 +258,9 @@ static int cmd_run_all(const char *file) {
 
 static int cmd_run_task(const char *file, const char *name, int force) {
   dagwood_env *env = env_new(file);
-  if (!env) return EXIT_FAILURE;
+  if (!env) {
+    return EXIT_FAILURE;
+  }
 
   if (!env_find_task(env, name)) {
     fprintf(stderr, "[dagwood] task not found: %s\n", name);
@@ -255,7 +273,9 @@ static int cmd_run_task(const char *file, const char *name, int force) {
     return EXIT_FAILURE;
   }
 
-  if (force) g_graph->force_run = true;
+  if (force) {
+    g_graph->force_run = true;
+  }
 
   int ok = dagwood_graph_execute_task(g_graph, name);
   env_delete(env);
@@ -274,10 +294,11 @@ static int cmd_run_subcommand(const char *file, int argc, char **argv) {
 
   optind = 1; /* Reset for sub-parsing */
   while ((opt = getopt_long(argc, argv, "f", opts, NULL)) != -1) {
-    if (opt == 'f')
+    if (opt == 'f') {
       force = 1;
-    else
+    } else {
       return EXIT_FAILURE;
+    }
   }
 
   if (optind >= argc) {
@@ -289,7 +310,9 @@ static int cmd_run_subcommand(const char *file, int argc, char **argv) {
   const char *task = argv[optind];
   size_t qlen = strlen(MAIN_NS_PREFIX) + strlen(task) + 1;
   char *qname = malloc(qlen);
-  if (!qname) return EXIT_FAILURE;
+  if (!qname) {
+    return EXIT_FAILURE;
+  }
 
   snprintf(qname, qlen, "%s%s", MAIN_NS_PREFIX, task);
   int result = cmd_run_task(file, qname, force);
@@ -317,7 +340,9 @@ static void parse_cli_args(int argc, char **argv, int start_idx,
 
   if (arg_count > 0) {
     g_cli_args = calloc((size_t)arg_count, sizeof(cli_arg));
-    if (!g_cli_args) return;
+    if (!g_cli_args) {
+      return;
+    }
   }
 
   for (int i = start_idx; i < argc; i++) {

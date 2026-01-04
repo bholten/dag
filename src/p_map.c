@@ -30,7 +30,9 @@ static int p_map_resize(p_map *p, size_t new_cap);
 
 p_map *p_map_new(void) {
   struct p_map *p = malloc(sizeof(*p));
-  if (!p) return NULL;
+  if (!p) {
+    return NULL;
+  }
 
   p->keys = calloc(INITIAL_CAP, sizeof(*p->keys));
   p->values = calloc(INITIAL_CAP, sizeof(*p->values));
@@ -51,7 +53,9 @@ p_map *p_map_new(void) {
 
 void p_map_delete(p_map *p) {
   size_t i;
-  if (!p) return;
+  if (!p) {
+    return;
+  }
 
   for (i = 0; i < p->cap; i++) {
     if (p->used[i]) {
@@ -68,7 +72,9 @@ void p_map_delete(p_map *p) {
 dagwood_project *p_map_get(p_map *p, const char *name) {
   size_t h, idx, i;
 
-  if (!name) return NULL;
+  if (!name) {
+    return NULL;
+  }
 
   h = hash_string(name);
   idx = h % p->cap;
@@ -187,7 +193,11 @@ size_t p_map_end(p_map *p) {
 }
 
 dagwood_project *p_map_value(p_map *p, size_t index) {
-  if (index >= p->cap) return NULL;
-  if (!p->used[index]) return NULL;
+  if (index >= p->cap) {
+    return NULL;
+  }
+  if (!p->used[index]) {
+    return NULL;
+  }
   return p->values[index];
 }

@@ -29,7 +29,9 @@ static int ts_map_resize(ts_map *ts, size_t new_cap);
 
 struct ts_map *ts_map_new(void) {
   struct ts_map *ts = malloc(sizeof(*ts));
-  if (!ts) return NULL;
+  if (!ts) {
+    return NULL;
+  }
 
   ts->keys = calloc(INITIAL_CAP, sizeof(*ts->keys));
   ts->values = calloc(INITIAL_CAP, sizeof(*ts->values));
@@ -50,7 +52,9 @@ struct ts_map *ts_map_new(void) {
 
 void ts_map_delete(struct ts_map *ts) {
   size_t i;
-  if (!ts) return;
+  if (!ts) {
+    return;
+  }
 
   for (i = 0; i < ts->cap; i++) {
     if (ts->used[i]) {
@@ -67,7 +71,9 @@ void ts_map_delete(struct ts_map *ts) {
 task_state ts_map_get(struct ts_map *ts, const char *name) {
   size_t h, idx, i;
 
-  if (!name) return -1;
+  if (!name) {
+    return -1;
+  }
 
   h = hash_string(name);
   idx = h % ts->cap;

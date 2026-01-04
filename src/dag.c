@@ -54,7 +54,9 @@ bool dag_build(t_arr *arr, t_layers *out) {
 }
 
 static void collect_dependencies(const dagwood_task *task, t_map *out) {
-  if (t_map_exists(out, task->id)) return;
+  if (t_map_exists(out, task->id)) {
+    return;
+  }
   t_map_set(out, task->id, task);
 
   for (size_t i = 0; i < t_arr_len(task->edges); i++) {
@@ -67,11 +69,13 @@ bool dag_build_from_task(const dagwood_task *task, t_layers *out) {
   t_map *scope = t_map_new();
   collect_dependencies(task, scope);
   t_arr *targets = t_arr_new();
-  
+
   for (size_t i = t_map_begin(scope); i < t_map_end(scope); i++) {
     dagwood_task *t = t_map_value(scope, i);
-    
-    if (!t) continue;
+
+    if (!t) {
+      continue;
+    }
 
     t_arr_push(targets, t);
   }
@@ -94,7 +98,7 @@ bool dag_build_from_task(const dagwood_task *task, t_layers *out) {
 
   for (size_t i = 0; i < n; i++) {
     dagwood_task *t = t_arr_get(targets, i);
-  
+
     for (size_t j = 0; j < t_arr_len(t->edges); j++) {
       dagwood_task *dep = t_arr_get(t->edges, j);
 
@@ -123,7 +127,9 @@ bool dag_build_from_task(const dagwood_task *task, t_layers *out) {
       for (size_t j = 0; j < t_arr_len(t->reverse_edges); j++) {
         dagwood_task *dependent = t_arr_get(t->reverse_edges, j);
 
-        if (!t_map_exists(scope, dependent->id)) continue;
+        if (!t_map_exists(scope, dependent->id)) {
+          continue;
+        }
 
         for (size_t k = 0; k < n; k++) {
           if (t_arr_get(targets, k) == dependent) {

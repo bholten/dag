@@ -30,7 +30,9 @@ static int t_map_resize(t_map *table, size_t new_cap);
 
 t_map *t_map_new(void) {
   struct t_map *table = malloc(sizeof(*table));
-  if (!table) return NULL;
+  if (!table) {
+    return NULL;
+  }
 
   table->keys = calloc(INITIAL_CAP, sizeof(*table->keys));
   table->values = calloc(INITIAL_CAP, sizeof(*table->values));
@@ -51,7 +53,9 @@ t_map *t_map_new(void) {
 
 void t_map_delete(t_map *table) {
   size_t i;
-  if (!table) return;
+  if (!table) {
+    return;
+  }
 
   for (i = 0; i < table->cap; i++) {
     if (table->used[i]) {
@@ -68,7 +72,9 @@ void t_map_delete(t_map *table) {
 dagwood_task *t_map_get(t_map *table, const char *name) {
   size_t h, idx, i;
 
-  if (!name) return NULL;
+  if (!name) {
+    return NULL;
+  }
 
   h = hash_string(name);
   idx = h % table->cap;
@@ -191,7 +197,11 @@ size_t t_map_end(t_map *table) {
 }
 
 dagwood_task *t_map_value(t_map *table, size_t index) {
-  if (index >= table->cap) return NULL;
-  if (!table->used[index]) return NULL;
+  if (index >= table->cap) {
+    return NULL;
+  }
+  if (!table->used[index]) {
+    return NULL;
+  }
   return table->values[index];
 }
