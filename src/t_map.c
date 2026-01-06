@@ -200,8 +200,10 @@ dagwood_task *t_map_value(t_map *table, size_t index) {
   if (index >= table->cap) {
     return NULL;
   }
+
   if (!table->used[index]) {
     return NULL;
   }
+
   return table->values[index];
 }

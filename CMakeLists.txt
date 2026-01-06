@@ -25,13 +25,12 @@ endif()
 
 set(DSL_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/lib/dagwood.lcl)
 set(DSL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/dagwood_dsl.h)
-
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
 add_custom_command(
   OUTPUT ${DSL_HEADER}
   COMMAND xxd -i lib/dagwood.lcl > ${DSL_HEADER}.tmp
-  COMMAND sed -i "s/unsigned char/static const unsigned char/\; s/unsigned int/static const unsigned int/\; s/lib_dagwood_lcl/dagwood_dsl_lcl/g" ${DSL_HEADER}.tmp
+  COMMAND sed -i -e "s/unsigned char/static const unsigned char/" -e "s/unsigned int/static const unsigned int/" -e "s/lib_dagwood_lcl/dagwood_dsl_lcl/g" ${DSL_HEADER}.tmp
   COMMAND ${CMAKE_COMMAND} -E rename ${DSL_HEADER}.tmp ${DSL_HEADER}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${DSL_SOURCE}

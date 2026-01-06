@@ -1,6 +1,0 @@
-TODO before public release
-
-- Handle CLI properly
-- Some ability to forward build args to the Dagwood file
-- Finish REPL (or cut it -- do we really need it?)
-- Documentation

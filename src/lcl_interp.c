@@ -68,7 +68,11 @@ static bool load_embedded_dsl(lcl_interp *interp) {
   }
 
   if (rc != LCL_RC_OK) {
-    fprintf(stderr, "[dagwood] Failed to load embedded DSL\n");
+    const char *msg = lcl_interp_error_msg(interp);
+    int line = lcl_interp_error_line(interp);
+    fprintf(stderr, "[dagwood] Failed to load embedded DSL: line %d msg: %s\n",
+            line, msg);
+
     return false;
   }
 

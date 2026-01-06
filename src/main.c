@@ -27,16 +27,12 @@
 #define DEFAULT_FILE "Dagwood"
 #define MAIN_NS_PREFIX "::___dagwood::main::"
 
-/* CLI argument (KEY=value pair) */
 typedef struct {
   char *name;
   char *value;
 } cli_arg;
 
-/* Global graph for signal handler access */
 static dagwood_graph *g_graph = NULL;
-
-/* Global CLI args */
 static cli_arg *g_cli_args = NULL;
 static int g_cli_argc = 0;
 
@@ -125,7 +121,6 @@ static dagwood_env *env_new(const char *file) {
     return NULL;
   }
 
-  /* Set CLI args before parsing the file */
   for (int i = 0; i < g_cli_argc; i++) {
     interpreter_set_cli_arg(env->interp, g_cli_args[i].name,
                             g_cli_args[i].value);
@@ -292,7 +287,8 @@ static int cmd_run_subcommand(const char *file, int argc, char **argv) {
   int force = 0;
   int opt;
 
-  optind = 1; /* Reset for sub-parsing */
+  optind = 1;
+
   while ((opt = getopt_long(argc, argv, "f", opts, NULL)) != -1) {
     if (opt == 'f') {
       force = 1;
@@ -412,7 +408,6 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  /* Parse remaining args: KEY=value pairs and task name */
   const char *target = NULL;
   parse_cli_args(argc, argv, optind, &target);
 
@@ -435,14 +430,12 @@ int main(int argc, char **argv) {
   case MODE_RUN: break;
   }
 
-  /* No target specified: run whole project */
   if (target == NULL) {
     result = cmd_run_all(file);
     free_cli_args();
     return result;
   }
 
-  /* Handle subcommand or direct task name */
   if (strcmp(target, "run") == 0) {
     result = cmd_run_subcommand(file, argc - optind, &argv[optind]);
     free_cli_args();
