@@ -1,130 +1,130 @@
-# Namespace feature tests
-# Tests: def variables, task inputs/outputs, variable substitution
+;; Namespace feature tests
+;; Tests: def variables, task inputs/outputs, variable substitution
 
-project ns_test
+project ns_test {
+    ;; ============================================================================
+    ;; Test 1: Basic def variable substitution
+    ;; ============================================================================
+    def BUILD_DIR build
+    def OUTPUT_FILE output.txt
 
-# ============================================================================
-# Test 1: Basic def variable substitution
-# ============================================================================
-def BUILD_DIR build
-def OUTPUT_FILE output.txt
-
-task test_let_vars {
-    description "Test let variable substitution in run script"
-    outputs $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
-    run {
-        mkdir -p $ns_test::BUILD_DIR
-        echo "let_vars_work" > $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
+    task test_let_vars {
+        description "Test let variable substitution in run script"
+        outputs $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
+        run {
+            mkdir -p $ns_test::BUILD_DIR
+            echo "let_vars_work" > $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
+        }
     }
-}
 
-# ============================================================================
-# Test 2: def variable with list value
-# ============================================================================
-def FILE_LIST [list file1.txt file2.txt file3.txt]
+    ;; ============================================================================
+    ;; Test 2: def variable with list value
+    ;; ============================================================================
+    def FILE_LIST (file1.txt file2.txt file3.txt)
 
-task test_let_list {
-    description "Test def with list value"
-    outputs $ns_test::FILE_LIST
-    run {
-        touch file1.txt file2.txt file3.txt
+    task test_let_list {
+        description "Test def with list value"
+        outputs $ns_test::FILE_LIST
+        run {
+            touch file1.txt file2.txt file3.txt
+        }
     }
-}
 
-# ============================================================================
-# Test 3: Task dependency via explicit outputs
-# ============================================================================
-def PRODUCER_OUT build/produced.txt
-def CONSUMER_OUT build/consumed.txt
+    ;; ============================================================================
+    ;; Test 3: Task dependency via explicit outputs
+    ;; ============================================================================
+    def PRODUCER_OUT build/produced.txt
+    def CONSUMER_OUT build/consumed.txt
 
-task producer {
-    description "Producer task for output reference test"
-    outputs $ns_test::PRODUCER_OUT
-    run {
-        mkdir -p build
-        echo "produced" > $ns_test::PRODUCER_OUT
+    task producer {
+        description "Producer task for output reference test"
+        outputs $ns_test::PRODUCER_OUT
+        run {
+            mkdir -p build
+            echo "produced" > $ns_test::PRODUCER_OUT
+        }
     }
-}
 
-task consumer {
-    description "Consumer task - depends on producer via inputs"
-    inputs $ns_test::PRODUCER_OUT
-    outputs $ns_test::CONSUMER_OUT
-    run {
-        cat $ns_test::PRODUCER_OUT > $ns_test::CONSUMER_OUT
+    task consumer {
+        description "Consumer task - depends on producer via inputs"
+        inputs $ns_test::PRODUCER_OUT
+        outputs $ns_test::CONSUMER_OUT
+        run {
+            cat $ns_test::PRODUCER_OUT > $ns_test::CONSUMER_OUT
+        }
     }
-}
 
-# ============================================================================
-# Test 4: Explicit depends_on
-# ============================================================================
-task base_task {
-    description "Base task with a run script"
-    run {
-        echo "base_script_output"
+    ;; ============================================================================
+    ;; Test 4: Explicit depends_on
+    ;; ============================================================================
+    task base_task {
+        description "Base task with a run script"
+        run {
+            echo "base_script_output"
+        }
     }
-}
 
-task dependent_task {
-    description "Depends explicitly on base_task"
-    depends_on ns_test::base_task
-    run {
-        echo "Running after base_task"
+    task dependent_task {
+        description "Depends explicitly on base_task"
+        depends_on ns_test::base_task
+        run {
+            echo "Running after base_task"
+        }
     }
-}
 
-# ============================================================================
-# Test 5: Multiple dependencies
-# ============================================================================
-task multi_dep {
-    description "Depends on multiple tasks"
-    depends_on [list ns_test::producer ns_test::consumer]
-    inputs [list $ns_test::PRODUCER_OUT $ns_test::CONSUMER_OUT]
-    run {
-        echo "All dependencies satisfied"
+    ;; ============================================================================
+    ;; Test 5: Multiple dependencies
+    ;; ============================================================================
+    task multi_dep {
+        description "Depends on multiple tasks"
+        depends_on (ns_test::producer ns_test::consumer)
+        inputs ($ns_test::PRODUCER_OUT $ns_test::CONSUMER_OUT)
+        run {
+            echo "All dependencies satisfied"
+        }
     }
-}
 
-# ============================================================================
-# Test 6: Braced variable syntax ${...}
-# ============================================================================
-task braced_var {
-    description "Test braced variable syntax"
-    run {
-        echo "Braced: ${ns_test::BUILD_DIR}/subdir"
+    ;; ============================================================================
+    ;; Test 6: Braced variable syntax ${...}
+    ;; ============================================================================
+    task braced_var {
+        description "Test braced variable syntax"
+        run {
+            echo "Braced: ${ns_test::BUILD_DIR}/subdir"
+        }
     }
-}
 
-# ============================================================================
-# Test 7: Mixed content in run script
-# ============================================================================
-task mixed_content {
-    description "Test mixed content with shell variables"
-    run {
-        # Shell variables should be preserved
-        echo "LCL var: $ns_test::BUILD_DIR"
-        echo "Shell special: $$ $? $!"
+    ;; ============================================================================
+    ;; Test 7: Mixed content in run script
+    ;; ============================================================================
+    task mixed_content {
+        description "Test mixed content with shell variables"
+        run {
+            # Shell variables should be preserved
+            echo "LCL var: $ns_test::BUILD_DIR"
+            echo "Shell special: $$ $? $!"
+        }
     }
-}
 
-# ============================================================================
-# Test 8: Undefined variable handling
-# Note: Using single quotes so bash doesn't substitute
-# ============================================================================
-task undefined_var {
-    description "Test undefined variable handling"
-    run {
-        echo 'Undefined: $undefined::variable'
-        echo 'Partial: $ns_test::nonexistent'
+    ;; ============================================================================
+    ;; Test 8: Undefined variable handling
+    ;; Note: Using single quotes so bash doesn't substitute
+    ;; ============================================================================
+    task undefined_var {
+        description "Test undefined variable handling"
+        run {
+            echo 'Undefined: $undefined::variable'
+            echo 'Partial: $ns_test::nonexistent'
+        }
     }
-}
 
-# ============================================================================
-# Cleanup
-# ============================================================================
-command clean {
-    description "Clean build artifacts"
-    run {
-        rm -rf $ns_test::BUILD_DIR build file1.txt file2.txt file3.txt
+    ;; ============================================================================
+    ;; Cleanup
+    ;; ============================================================================
+    command clean {
+        description "Clean build artifacts"
+        run {
+            rm -rf $ns_test::BUILD_DIR build file1.txt file2.txt file3.txt
+        }
     }
 }

@@ -1,16 +1,16 @@
-;; Dagwood DSL - LCL Implementation
+;; Dagwood DSL - LCL Implementation (Nested Design)
 ;; This file is loaded automatically by the Dagwood C runtime.
 ;; The C side provides special forms: `project`, `import`
 
 ;; Global registry - initialize only once
 ;; catch returns 1 on error (not initialized), 0 on success (already initialized)
 let _dagwood_needs_init [catch { getvar dagwood::projects } _unused]
-
 if {== $_dagwood_needs_init 1} {
-    namespace eval dagwood {
-        var projects [list]
-        var imports [dict]
-        var primary [list]
+    namespace dagwood {
+        var projects ()
+        var imports #{}
+        var primary ()
+        var current_project ()
     }
 }
 
@@ -27,11 +27,22 @@ proc _split_qualified {qualified_name} {
     return [list $proj $rest]
 }
 
-proc _project {project_name} {
-    let syntax [quasiquote {
+;; ============================================================================
+;; Nested Project Implementation
+;; ============================================================================
+
+;; The _project proc is called by the C special form with project name and body.
+;; It returns a list: (setup_code body) where:
+;;   - setup_code should be evaluated at TOP LEVEL to create namespace
+;;   - body should be evaluated separately (C handles this)
+proc _project {project_name body} {
+    ;; Return setup code and body as separate elements
+    let setup_code [quasiquote {
+        ;; Register project
         set! dagwood::projects [List::push $dagwood::projects ,$project_name]
 
-        namespace eval ,$project_name {
+        ;; Create project namespace with storage and DSL procs
+        namespace ,$project_name {
             var _config #{}
             var _tasks #{}
             var _commands #{}
@@ -111,6 +122,7 @@ proc _project {project_name} {
             }
         }
 
+        ;; Define top-level procs that delegate to namespace-scoped impl procs
         proc config {body} {
             ,${project_name}::config_impl $body
         }
@@ -124,8 +136,12 @@ proc _project {project_name} {
         }
     }]
 
-    return $syntax
+    return [list $setup_code $body]
 }
+
+;; ============================================================================
+;; Import Implementation
+;; ============================================================================
 
 proc _import {path} {
     return [quasiquote {
@@ -152,6 +168,10 @@ proc _import_as {alias path} {
     }]
 }
 
+;; ============================================================================
+;; Task Manipulation Helpers (for advanced use)
+;; ============================================================================
+
 ;; Get a task dict from a project
 ;; Usage: task_get project::taskname
 proc task_get {qualified_name} {
@@ -162,24 +182,6 @@ proc task_get {qualified_name} {
     let tasks [getvar $tasks_var]
 
     return [get $tasks $task_name]
-}
-
-;; Set/update a task in a project
-;; Usage: task_set project::taskname new_task_dict
-proc task_set {qualified_name task_dict} {
-    let parts [_split_qualified $qualified_name]
-    let proj [get $parts 0]
-    let task_name [get $parts 1]
-
-    let tasks_var "${proj}::_tasks"
-    let tasks [getvar $tasks_var]
-    let new_tasks [put $tasks $task_name $task_dict]
-
-    ;; This is tricky - we need to set! the namespace variable
-    ;; For now, return code to eval
-    return [quasiquote {
-        set! ,$tasks_var ,$new_tasks
-    }]
 }
 
 ;; Override a task completely
@@ -215,7 +217,7 @@ proc task_extend {qualified_name body} {
             if {empty? $existing} {
                 set! _task [put $_task depends-on $val]
             } else {
-                set! _task [put $_task depends-on [list $existing $val]]
+                set! _task [put $_task depends-on [List::push $existing $val]]
             }
         }
 
@@ -229,7 +231,7 @@ proc task_extend {qualified_name body} {
             if {empty? $existing} {
                 set! _task [put $_task inputs $val]
             } else {
-                set! _task [put $_task inputs [list $existing $val]]
+                set! _task [put $_task inputs [List::push $existing $val]]
             }
         }
 
@@ -238,7 +240,7 @@ proc task_extend {qualified_name body} {
             if {empty? $existing} {
                 set! _task [put $_task outputs $val]
             } else {
-                set! _task [put $_task outputs [list $existing $val]]
+                set! _task [put $_task outputs [List::push $existing $val]]
             }
         }
 
@@ -252,6 +254,7 @@ proc task_extend {qualified_name body} {
     }]
 }
 
+;; Disable/remove a task
 proc task_disable {qualified_name} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]

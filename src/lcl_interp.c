@@ -81,15 +81,16 @@ static bool load_embedded_dsl(lcl_interp *interp) {
 }
 
 /*
- * Special form: project <name>
+ * Special form: project <name> { <body> }
  *
- * Calls _project to get the initialization code, then evals it.
- * This sets up the project namespace with config/task/command procs.
+ * Calls _project with the name and body to set up the project namespace
+ * and evaluate the body with task/command/etc procs in scope.
  */
 static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
                      lcl_value **out) {
-  if (argc != 1) {
-    fprintf(stderr, "[dagwood] project requires exactly 1 argument\n");
+  if (argc != 2) {
+    fprintf(stderr, "[dagwood] project requires exactly 2 arguments: name and "
+                    "body\n");
     return LCL_RC_ERR;
   }
 
@@ -115,43 +116,100 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     return LCL_RC_ERR;
   }
 
-  lcl_value *project_proc = NULL;
+  /* Get body as string (unevaluated) */
+  lcl_value *body_val = NULL;
+  rc = lcl_eval_word(interp, args[1], &body_val);
 
-  if (lcl_get(interp, "_project", &project_proc) != LCL_OK || !project_proc) {
-    fprintf(stderr, "[dagwood] _project proc not found (DSL not loaded?)\n");
+  if (rc != LCL_RC_OK || !body_val) {
+    fprintf(stderr, "[dagwood] failed to evaluate project body\n");
     lcl_ref_dec(name_val);
     free(name);
     return LCL_RC_ERR;
   }
 
-  lcl_value *init_code = NULL;
-  lcl_value *call_args[1] = {name_val};
-  rc = lcl_call_proc(interp, project_proc, 1, call_args, &init_code);
+  lcl_value *project_proc = NULL;
+
+  if (lcl_get(interp, "_project", &project_proc) != LCL_OK || !project_proc) {
+    fprintf(stderr, "[dagwood] _project proc not found (DSL not loaded?)\n");
+    lcl_ref_dec(name_val);
+    lcl_ref_dec(body_val);
+    free(name);
+    return LCL_RC_ERR;
+  }
+
+  /* Set current_project BEFORE calling _project so def/arg work in body */
+  const char *saved_project = g_ctx.current_project;
+  g_ctx.current_project = name;
+
+  /* Call _project with name and body - returns (setup_code body) list */
+  lcl_value *result = NULL;
+  lcl_value *call_args[2] = {name_val, body_val};
+  rc = lcl_call_proc(interp, project_proc, 2, call_args, &result);
   lcl_ref_dec(project_proc);
   lcl_ref_dec(name_val);
+  lcl_ref_dec(body_val);
 
-  if (rc != LCL_RC_OK || !init_code) {
-    fprintf(stderr, "[dagwood] _project failed\n");
+  if (rc != LCL_RC_OK || !result) {
+    fprintf(stderr, "[dagwood] project '%s' initialization failed\n", name);
+    if (result) {
+      lcl_ref_dec(result);
+    }
+    g_ctx.current_project = saved_project;
     free(name);
     return LCL_RC_ERR;
   }
 
-  const char *init_code_str = lcl_value_to_string(init_code);
-  lcl_value *eval_result = NULL;
-  rc = lcl_eval_string(interp, init_code_str, &eval_result);
-  lcl_ref_dec(init_code);
-
-  if (eval_result) {
-    lcl_ref_dec(eval_result);
-  }
-
-  if (rc != LCL_RC_OK) {
-    fprintf(stderr, "[dagwood] project initialization failed\n");
+  /* Extract setup_code and body from returned list */
+  lcl_value *setup_code = NULL;
+  lcl_value *body_code = NULL;
+  if (lcl_list_get(result, 0, &setup_code) != LCL_OK || !setup_code ||
+      lcl_list_get(result, 1, &body_code) != LCL_OK || !body_code) {
+    fprintf(stderr, "[dagwood] project '%s': invalid return from _project\n",
+            name);
+    lcl_ref_dec(result);
+    g_ctx.current_project = saved_project;
     free(name);
     return LCL_RC_ERR;
   }
 
-  g_ctx.current_project = name;
+  /* Evaluate setup code at top level to create namespace */
+  const char *setup_str = lcl_value_to_string(setup_code);
+  if (setup_str && setup_str[0]) {
+    lcl_value *eval_result = NULL;
+    rc = lcl_eval_string(interp, setup_str, &eval_result);
+    if (eval_result) {
+      lcl_ref_dec(eval_result);
+    }
+    if (rc != LCL_RC_OK) {
+      fprintf(stderr, "[dagwood] project '%s' setup failed\n", name);
+      lcl_ref_dec(result);
+      g_ctx.current_project = saved_project;
+      free(name);
+      return LCL_RC_ERR;
+    }
+  }
+
+  /* Evaluate body at top level */
+  const char *body_str = lcl_value_to_string(body_code);
+  if (body_str && body_str[0]) {
+    lcl_value *eval_result = NULL;
+    rc = lcl_eval_string(interp, body_str, &eval_result);
+    if (eval_result) {
+      lcl_ref_dec(eval_result);
+    }
+    if (rc != LCL_RC_OK) {
+      fprintf(stderr, "[dagwood] project '%s' body evaluation failed\n", name);
+      lcl_ref_dec(result);
+      g_ctx.current_project = saved_project;
+      free(name);
+      return LCL_RC_ERR;
+    }
+  }
+
+  lcl_ref_dec(result);
+
+  /* Restore saved project (nested projects would override) */
+  g_ctx.current_project = saved_project;
 
   *out = lcl_string_new(name);
   return *out ? LCL_RC_OK : LCL_RC_ERR;
@@ -1013,8 +1071,8 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
     snprintf(tasks_cmd, sizeof(tasks_cmd), "$%s::_tasks", project_name);
 
     lcl_value *tasks_dict = NULL;
-    if (lcl_eval_string(interp, tasks_cmd, &tasks_dict) == LCL_RC_OK &&
-        tasks_dict) {
+    int rc = lcl_eval_string(interp, tasks_cmd, &tasks_dict);
+    if (rc == LCL_RC_OK && tasks_dict) {
       char keys_cmd[1024];
       snprintf(keys_cmd, sizeof(keys_cmd), "Dict::keys $%s::_tasks",
                project_name);

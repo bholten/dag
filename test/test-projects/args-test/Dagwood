@@ -1,21 +1,21 @@
-# Args test - tests the 'arg' command for CLI-overridable parameters
+;; Args test - tests the 'arg' command for CLI-overridable parameters
 
-project args_test
+project args_test {
+    ;; Define arguments with defaults (can be overridden via CLI: KEY=value)
+    arg BUILD_TYPE debug
+    arg CC gcc
 
-# Define arguments with defaults (can be overridden via CLI: KEY=value)
-arg BUILD_TYPE debug
-arg CC gcc
-
-task show_args {
-    description "Show the build arguments"
-    run {
-        echo "BUILD_TYPE=$args_test::BUILD_TYPE CC=$args_test::CC"
+    task show_args {
+        description "Show the build arguments"
+        run {
+            echo "BUILD_TYPE=$args_test::BUILD_TYPE CC=$args_test::CC"
+        }
     }
-}
 
-task use_args {
-    description "Use the arguments in a build command"
-    run {
-        echo "Would run: $args_test::CC -O2 -DBUILD_TYPE=$args_test::BUILD_TYPE main.c"
+    task use_args {
+        description "Use the arguments in a build command"
+        run {
+            echo "Would run: $args_test::CC -O2 -DBUILD_TYPE=$args_test::BUILD_TYPE main.c"
+        }
     }
 }

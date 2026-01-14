@@ -1,19 +1,19 @@
-project project_2
+project project_2 {
+    def BUILD_DIR build
+    def OUTPUT $project_2::BUILD_DIR/output.txt
 
-def BUILD_DIR build
-def OUTPUT $project_2::BUILD_DIR/output.txt
-
-task build {
-    description "Build project_2"
-    outputs $project_2::OUTPUT
-    run {
-        mkdir -p $project_2::BUILD_DIR
-        echo "project_2 built" > $project_2::OUTPUT
+    task build {
+        description "Build project_2"
+        outputs $project_2::OUTPUT
+        run {
+            mkdir -p $project_2::BUILD_DIR
+            echo "project_2 built" > $project_2::OUTPUT
+        }
     }
-}
 
-command clean {
-    run {
-        rm -rf $project_2::BUILD_DIR
+    command clean {
+        run {
+            rm -rf $project_2::BUILD_DIR
+        }
     }
 }

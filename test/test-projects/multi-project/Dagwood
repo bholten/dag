@@ -1,27 +1,27 @@
-# Multi-project test
-# Tests import functionality and cross-project dependencies
+;; Multi-project test
+;; Tests import functionality and cross-project dependencies
 
 import project_1/Dagwood
 import project_2/Dagwood
 import project_3/Dagwood
 
-project multiproject
+project multiproject {
+    def BUILD_DIR build
 
-def BUILD_DIR build
-
-# Top-level task that depends on all sub-projects
-task all {
-    description "Build all projects"
-    depends_on [list project_1::task_3 project_2::build project_3::combine]
-    run {
-        mkdir -p $multiproject::BUILD_DIR
-        echo "All projects built successfully" > $multiproject::BUILD_DIR/complete.txt
+    ;; Top-level task that depends on all sub-projects
+    task all {
+        description "Build all projects"
+        depends_on (project_1::task_3 project_2::build project_3::combine)
+        run {
+            mkdir -p $multiproject::BUILD_DIR
+            echo "All projects built successfully" > $multiproject::BUILD_DIR/complete.txt
+        }
     }
-}
 
-command clean {
-    description "Clean all projects"
-    run {
-        rm -rf $multiproject::BUILD_DIR
+    command clean {
+        description "Clean all projects"
+        run {
+            rm -rf $multiproject::BUILD_DIR
+        }
     }
 }
