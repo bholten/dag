@@ -19,12 +19,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-// clang-format off
-// lcl.h must be included before lcl-io (or any libraries)
-// Turn clang-format off for being aggressive
+/* clang-format off */
+/* lcl.h must be included before lcl-io (or any libraries) 
+ * Turn clang-format off for being aggressive */
 #include <lcl.h>
 #include <lcl-io.h>
-// clang-format on
+/* clang-format on */
 
 #include "dagwood.h"
 #include "data.h"
@@ -116,7 +116,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     return LCL_RC_ERR;
   }
 
-  /* Get body as string (unevaluated) */
   lcl_value *body_val = NULL;
   rc = lcl_eval_word(interp, args[1], &body_val);
 
@@ -137,11 +136,8 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     return LCL_RC_ERR;
   }
 
-  /* Set current_project BEFORE calling _project so def/arg work in body */
   const char *saved_project = g_ctx.current_project;
   g_ctx.current_project = name;
-
-  /* Call _project with name and body - returns (setup_code body) list */
   lcl_value *result = NULL;
   lcl_value *call_args[2] = {name_val, body_val};
   rc = lcl_call_proc(interp, project_proc, 2, call_args, &result);
@@ -159,9 +155,9 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     return LCL_RC_ERR;
   }
 
-  /* Extract setup_code and body from returned list */
   lcl_value *setup_code = NULL;
   lcl_value *body_code = NULL;
+  
   if (lcl_list_get(result, 0, &setup_code) != LCL_OK || !setup_code ||
       lcl_list_get(result, 1, &body_code) != LCL_OK || !body_code) {
     fprintf(stderr, "[dagwood] project '%s': invalid return from _project\n",
@@ -172,8 +168,8 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     return LCL_RC_ERR;
   }
 
-  /* Evaluate setup code at top level to create namespace */
   const char *setup_str = lcl_value_to_string(setup_code);
+  
   if (setup_str && setup_str[0]) {
     lcl_value *eval_result = NULL;
     rc = lcl_eval_string(interp, setup_str, &eval_result);
@@ -189,8 +185,18 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     }
   }
 
-  /* Evaluate body at top level */
+  char set_proj_cmd[512];
+  snprintf(set_proj_cmd, sizeof(set_proj_cmd),
+           "set! dagwood::current_project %s", name);
+  lcl_value *set_result = NULL;
+  lcl_eval_string(interp, set_proj_cmd, &set_result);
+  
+  if (set_result) {
+    lcl_ref_dec(set_result);
+  }
+
   const char *body_str = lcl_value_to_string(body_code);
+  
   if (body_str && body_str[0]) {
     lcl_value *eval_result = NULL;
     rc = lcl_eval_string(interp, body_str, &eval_result);
@@ -199,6 +205,8 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     }
     if (rc != LCL_RC_OK) {
       fprintf(stderr, "[dagwood] project '%s' body evaluation failed\n", name);
+      /* Clear LCL-side current project */
+      lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
       lcl_ref_dec(result);
       g_ctx.current_project = saved_project;
       free(name);
@@ -206,12 +214,12 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     }
   }
 
+  lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
   lcl_ref_dec(result);
-
-  /* Restore saved project (nested projects would override) */
   g_ctx.current_project = saved_project;
 
   *out = lcl_string_new(name);
+  
   return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
@@ -480,10 +488,8 @@ static int c_glob(lcl_interp *interp, int argc, lcl_value **argv,
         closedir(dir);
       }
     } else if (strncmp(pattern, "**/", 3) == 0) {
-      /* Recursive glob */
       glob_recursive("", pattern, out);
     } else {
-      /* Path with directory component */
       char base[4096];
       size_t base_len = (size_t)(slash - pattern);
 
@@ -680,8 +686,8 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
     final_value = lcl_value_to_string(cli_val);
   }
 
-  /* Define in project namespace to avoid frame-local scoping issues */
   lcl_value *proj_ns = NULL;
+  
   if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
     lcl_value *val = lcl_string_new(final_value);
     if (!val) {
@@ -700,8 +706,8 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
     return *out ? LCL_RC_OK : LCL_RC_ERR;
   }
 
-  /* Fallback to old behavior if namespace lookup fails */
   char *qname = make_qualified_name(g_ctx.current_project, name);
+
   if (!qname) {
     if (cli_val) {
       lcl_ref_dec(cli_val);
@@ -807,7 +813,6 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
       const char *var_end = var_start;
       bool braced = false;
 
-      /* Check for ${...} syntax */
       if (*var_start == '{') {
         braced = true;
         var_start++;
@@ -816,16 +821,14 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
           var_end++;
         }
       } else {
-        /* Regular $var syntax - scan identifier chars */
         while (is_ident_char(*var_end)) {
           var_end++;
         }
       }
 
       size_t var_len = var_end - var_start;
-
-      /* Check if this is a namespace variable (contains ::) */
       bool is_namespace_var = false;
+      
       for (const char *c = var_start; c < var_end - 1; c++) {
         if (c[0] == ':' && c[1] == ':') {
           is_namespace_var = true;
@@ -834,14 +837,12 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
       }
 
       if (is_namespace_var && var_len > 0) {
-        /* Build the lookup expression "$var::name" */
         char *lookup = malloc(var_len + 2);
+        
         if (lookup) {
           lookup[0] = '$';
           memcpy(lookup + 1, var_start, var_len);
           lookup[var_len + 1] = '\0';
-
-          /* Look up in LCL */
           lcl_value *result = NULL;
           int rc = lcl_eval_string(interp, lookup, &result);
           free(lookup);
@@ -853,10 +854,10 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
 
           if (replacement) {
             size_t repl_len = strlen(replacement);
-            /* Ensure capacity */
             while (out_len + repl_len + 1 > out_capacity) {
               out_capacity *= 2;
               char *new_out = realloc(out, out_capacity);
+
               if (!new_out) {
                 if (result) {
                   lcl_ref_dec(result);
@@ -869,18 +870,17 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
             memcpy(out + out_len, replacement, repl_len);
             out_len += repl_len;
           }
+
           if (result) {
             lcl_ref_dec(result);
           }
-
-          /* Skip past the variable reference */
+          
           p = braced ? (var_end + 1) : var_end;
           continue;
         }
       }
     }
 
-    /* Copy character as-is */
     if (out_len + 2 > out_capacity) {
       out_capacity *= 2;
       char *new_out = realloc(out, out_capacity);
@@ -921,8 +921,8 @@ static void extract_string_list(lcl_value *val, s_arr **arr) {
   }
 
   size_t len = lcl_list_len(val);
+
   if (len > 0) {
-    /* It's a list */
     for (size_t i = 0; i < len; i++) {
       lcl_value *item = NULL;
       if (lcl_list_get(val, i, &item) == LCL_OK && item) {
@@ -937,7 +937,6 @@ static void extract_string_list(lcl_value *val, s_arr **arr) {
       }
     }
   } else {
-    /* It's a single string */
     const char *str = lcl_value_to_string(val);
     if (str && str[0]) {
       if (!*arr) {

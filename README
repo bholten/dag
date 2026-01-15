@@ -3,32 +3,37 @@
 
 Dagwood is a shell script orchestrator that models task dependencies
 using Make-like rules (mtime comparisons, etc.), however it also
-includes nicer and more explicit semantics for inspecting and mutating
-the directed acyclic graph (DAG), importing other projects, and so on.
+includes nicer and more explicit semantics for inspecting the directed
+acyclic graph (DAG), importing other projects, and so on.
 
 We enjoy Make, and consider ourselves to be adherents of the Unix
 Philosophy; however, Dagwood came about with our experience of Make
 becoming unmaintainable in large, polyglot, multi-project builds,
 especially in the context of simultaneously optimizing concurrent
-builds and recurisve and dynamic Makefiles. Dagwood was also
-influenced by our experience with Bazel, however without all the
-horrifying complexity and more aligned to Unix Philosophy standards.
+builds and recursive and dynamic Makefiles. Dagwood was also
+influenced by our experience with Bazel, however without the steep
+complexity and more aligned to Unix Philosophy standards.
 
-Dagwood is essentially a DSL for describing "projects" and "tasks". It
-is written in Tool Command Language (Tcl), which provides a pleasant
-interface and powerful programming capabilities.
+Dagwood is written in pure C with an embedded DSL powered by LCL
+(Lexical Command Language), a Tcl-like language with lexical scoping.
+LCL itself is pure C89 and depends only on POSIX headers. The DSL
+provides a pleasant interface for describing projects and tasks.
 
 Dagwood projects define a number of tasks, and Dagwood builds a DAG
 from these tasks by inspecting their inputs, outputs, and explicit
 "depends_on" relationships defined in the task definitions. It then
-topologically sorts this task-DAG and executes "layers" concurrently.
+topologically sorts this task-DAG and executes "layers" concurrently
+(tasks within a layer run in parallel; layers execute sequentially).
 
-Projects can also be imported and merged with your project's task
-graph. This echos the Bazel influence mentioned earlier: Dagwood can
-"import" other projects into your task-graph, mutate the graph, and
-insert or modify tasks to your own needs. This is nice for polyglot,
-multi-project builds, or for extending third-party projects and
-building them with additional features.
+Projects can be imported and composed with your project's task graph.
+This echoes the Bazel influence mentioned earlier: Dagwood can "import"
+other projects into your task-graph, with full namespace isolation.
+This is nice for polyglot, multi-project builds, or for depending on
+third-party projects.
+
+*Planned feature*: Graph mutation -- the ability to modify, extend, or
+override tasks from imported projects. This will enable extending
+third-party projects without forking them.
 
 Tasks in Dagwood are simply shell commands. Dagwood only cares about
 the return code, but the command could be anything. It could be a
@@ -37,7 +42,20 @@ as the task returns a sensible exit code.
 
 Some features of Dagwood:
 
-- Tasks declare explicit inputs, outputs, and dependencies
+- Tasks declare explicit inputs, outputs, and dependencies within
+  nested project blocks:
+
+    project myproject {
+        def BUILD_DIR build
+
+        task compile {
+            inputs src/main.c
+            outputs $myproject::BUILD_DIR/main.o
+            run {
+                gcc -c src/main.c -o $myproject::BUILD_DIR/main.o
+            }
+        }
+    }
 
 - Dagwood materializes an entire DAG based off information in the
   tasks (inputs, outputs, dependencies) and validates it before
@@ -48,20 +66,73 @@ Some features of Dagwood:
 
 - Dagwood projects can import other projects isolated with namespaces.
 
-- Tasks can be generated using Tcl procedures, and normal Tcl
-  functions (like `glob`) work fine.
+- Task attribute introspection: tasks and commands expose their
+  attributes as namespace variables. $project::task::run gives you the
+  run script, $project::task::outputs gives you the outputs, etc.
+  This is particularly useful for wrapper tools:
+
+    project myproject {
+        task compile {
+            inputs (src/main.c src/util.c)
+            outputs build/main
+            run {
+                gcc src/main.c src/util.c -o build/main
+            }
+        }
+
+        ;; Generate compile_commands.json using bear
+        task compile_db {
+            outputs compile_commands.json
+            run {
+                bear -- $myproject::compile::run
+            }
+        }
+
+        ;; Or wrap with ccache, distcc, timeout, etc.
+        task compile_cached {
+            outputs build/main
+            run {
+                ccache $myproject::compile::run
+            }
+        }
+    }
+
+- CLI arguments can override project variables:
+
+    arg CC gcc
+    arg CFLAGS "-O2"
+
+  Then run: dagwood CC=clang CFLAGS="-O3" build
 
 - Dagwood ships with a REPL that allows you to interactively inspect
   and run your project.
 
-- Task automatically define some namespaced-variables that can be
-  referred to across tasks or even projects. For example, you can
-  explicitly wire task "Foo's" outputs into task "Bar's" inputs with a
-  foo::inputs variable. Tcl developers will recognize this syntax as
-  normal Tcl namespace syntax.
-
 - Dagwood can emit Graphviz and you can inspect the DAG without
   running the project.
+
+LCL Scripting Features:
+
+The embedded LCL interpreter provides filesystem operations via the
+io:: namespace. This is useful for dynamic task generation:
+
+    io::getcwd              ;; Get current working directory
+    io::exists? path        ;; Check if file/directory exists
+    io::file? path          ;; Check if path is a regular file
+    io::dir? path           ;; Check if path is a directory
+    io::glob pattern        ;; POSIX glob pattern matching
+    io::readdir path        ;; List directory contents
+    io::read_file path      ;; Read entire file contents
+    io::write_file path str ;; Write string to file
+    io::file_mtime path     ;; Get modification time (Unix timestamp)
+    io::getenv VAR          ;; Get environment variable
+
+Standard LCL features like lists, dicts, string manipulation, and
+control flow are also available. More documentation forthcoming.
+
+*Planned feature*: Expect integration -- LCL includes a reimplementation
+of Expect for interactive process control. Future versions will allow
+inline expect scripts within task definitions for interactive builds,
+license acceptance prompts, and similar use cases.
 
 Dagwood also deliberately lacks some features:
 
@@ -106,40 +177,62 @@ targets are missing or misdeclared, and (most importantly for our
 use-cases) it is extremely brittle when composing across multiple
 projects.
 
-Dagwood builds the entire graph, validates inputs and outputs, and can
-group, introspect, and mutate the graph before execution.
+Dagwood builds the entire graph upfront, validates inputs and outputs,
+detects cycles, and executes in well-defined layers.
 
 Q: I already use recursive make. What's the advantage here?
 
 A: Recursive make often breaks parallelism and requires a ton of
-boilerplate to coordinate dependencies. It’s also error-prone and can
+boilerplate to coordinate dependencies. It's also error-prone and can
 silently skip sub-builds.
 
 Dagwood supports composing many projects into a unified graph. Tasks
 from different projects can depend on each other explicitly, and the
-workspace graph can be inspected, transformed, and validated.
+workspace graph can be inspected and validated before execution.
 
 Q: How is this different from Bazel?
 
 A: Although we took some inspiration from Bazel, Dagwood is quite
 different and probably closer to Make.
 
-Dagwood is substantially more simple that Bazel, has no built-in
-caching, and does not even emit any files by itself. It uses Tcl
-instead of Starlark, does not simultaneously run as a build-server,
-does not listen to syscalls to figure out what to cache, etc.
+Dagwood is substantially more simple than Bazel, has no built-in
+caching, and does not even emit any files by itself. It uses LCL
+(a Tcl-like language) instead of Starlark, does not simultaneously
+run as a build-server, does not listen to syscalls to figure out
+what to cache, etc.
 
 The inspiration Dagwood took from Bazel is importing and namespacing
-other projects (even third-party ones), and the ability to mutate the
-DAG of *other* projects and run them as your own.
+other projects (even third-party ones). Graph mutation (modifying
+imported project DAGs) is a planned feature.
 
 This is useful when, say, you want to compile a patch or plugin into a
 submoduled project -- but you don't necessarily want to fork the
-project or maintain a paralell repository.
+project or maintain a parallel repository.
 
 We also use this internally because we believe in separating code from
-deployment configuration and release management. For example, you
-might notice that Dagwood's main repository does not publish any
-artifacts -- we prefer to put them in other repositories and import
-Dagwood's build graph there, without contaminating our main
-repository.
+deployment configuration and release management.
+
+Quick Start:
+
+    # Build (requires C compiler, cmake, and xxd)
+    mkdir build && cd build
+    cmake ..
+    make
+
+    # Create a Dagwood file
+    cat > Dagwood << 'EOF'
+    project hello {
+        task greet {
+            run { echo "Hello, World!" }
+        }
+    }
+    EOF
+
+    # Run it
+    ./dagwood
+
+    # List tasks
+    ./dagwood --list
+
+    # See the DAG
+    ./dagwood --dot | dot -Tpng -o dag.png

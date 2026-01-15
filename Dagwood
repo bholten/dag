@@ -33,7 +33,7 @@ project dagwood {
         inputs ($dagwood::SOURCE $dagwood::HEADERS)
         outputs ($dagwood::BUILD_FOLDER/dagwood_debug)
         run {
-            $dagwood::CC $dagwood::DEBUG_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::debug::outputs
+            $dagwood::CC $dagwood::DEBUG_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::BUILD_FOLDER/dagwood_debug
         }
     }
 

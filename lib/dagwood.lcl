@@ -70,6 +70,11 @@ proc _project {project_name body} {
             }
 
             proc task_impl {task_name body} {
+                ;; Check for name collision with commands
+                if [has? $_commands $task_name] {
+                    error "task '$task_name' conflicts with existing command of same name"
+                }
+
                 var _task #{}
 
                 proc always_run {_always_run} {
@@ -100,10 +105,34 @@ proc _project {project_name body} {
 
                 set! _tasks [put $_tasks $task_name $_task]
 
+                ;; Create sub-namespace for task attributes (e.g., project::task::run)
+                let proj $dagwood::current_project
+                let ns_name "${proj}::${task_name}"
+                let run_val [get $_task run ()]
+                let desc_val [get $_task description ()]
+                let inputs_val [get $_task inputs ()]
+                let outputs_val [get $_task outputs ()]
+                let depends_on_val [get $_task depends-on ()]
+                let always_run_val [get $_task always_run ()]
+
+                namespace $ns_name {
+                    var run $run_val
+                    var description $desc_val
+                    var inputs $inputs_val
+                    var outputs $outputs_val
+                    var depends_on $depends_on_val
+                    var always_run $always_run_val
+                }
+
                 return $_task
             }
 
             proc command_impl {command_name body} {
+                ;; Check for name collision with tasks
+                if [has? $_tasks $command_name] {
+                    error "command '$command_name' conflicts with existing task of same name"
+                }
+
                 var _command #{}
 
                 proc description {_description} {
@@ -117,6 +146,17 @@ proc _project {project_name body} {
                 eval $body
 
                 set! _commands [put $_commands $command_name $_command]
+
+                ;; Create sub-namespace for command attributes (e.g., project::command::run)
+                let proj $dagwood::current_project
+                let ns_name "${proj}::${command_name}"
+                let run_val [get $_command run ()]
+                let desc_val [get $_command description ()]
+
+                namespace $ns_name {
+                    var run $run_val
+                    var description $desc_val
+                }
 
                 return $_command
             }

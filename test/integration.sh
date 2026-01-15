@@ -467,6 +467,56 @@ test_namespaces() {
         log_fail "undefined variable test failed"
     fi
 
+    # --- Test 9: Task attribute reference - another task's run script ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::reference_other_run" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    # Check that both the label and the run script content appear (may be on different lines)
+    if echo "$output" | grep -q "Other task run script:" && echo "$output" | grep -q "base_script_output"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "task attribute reference works (other task run)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "task attribute reference failed (expected base_task::run content)"
+    fi
+
+    # --- Test 10: Task attribute reference - self-referencing outputs ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::self_ref_outputs" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "My outputs: build/self_ref.txt"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "self-referencing task outputs works"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "self-referencing task outputs failed"
+    fi
+
+    # --- Test 11: Task attribute reference - description ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::reference_description" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "Producer description: Producer task for output reference test"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "task description attribute reference works"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "task description attribute reference failed"
+    fi
+
+    # --- Test 12: Command attribute reference ---
+    output=$("$DAGWOOD" -C "$proj" "ns_test::reference_command_run" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    # Check that both the label and the rm -rf appear (may be on different lines)
+    if echo "$output" | grep -q "Clean command run:" && echo "$output" | grep -q "rm -rf"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "command attribute reference works"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "command attribute reference failed"
+    fi
+
     # --- Cleanup ---
     "$DAGWOOD" -C "$proj" "ns_test::clean" >/dev/null 2>&1 || true
 }
