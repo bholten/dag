@@ -13,10 +13,15 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(DAGWOOD_COMPILE_OPTIONS -Wall -Wextra -D_POSIX_C_SOURCE=200809L)
 
-set(LCL_BUILD_IO ON CACHE BOOL "Build Lcl IO extension" FORCE)
-set(LCL_BUILD_TIME ON CACHE BOOL "Build Lcl time extension" FORCE)
 set(LCL_BUILD_CLI OFF CACHE BOOL "Don't build LCL CLI" FORCE)
 set(LCL_BUILD_SHARED OFF CACHE BOOL "Don't build shared LCL" FORCE)
+
+set(LCL_BUILD_IO ON CACHE BOOL "Build Lcl IO extension" FORCE)
+set(LCL_BUILD_TIME ON CACHE BOOL "Build Lcl time extension" FORCE)
+set(LCL_BUILD_PROCESS ON CACHE BOOL "Build Lcl process extension" FORCE)
+set(LCL_BUILD_EXPECT_LIB ON CACHE BOOL "Build Lcl expect library" FORCE)
+set(LCL_BUILD_SH_LIB ON CACHE BOOL "Build Lcl sh library" FORCE)
+
 add_subdirectory(submodules/lcl)
 
 if(DAGWOOD_ENABLE_ASAN)
@@ -30,9 +35,7 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
 add_custom_command(
   OUTPUT ${DSL_HEADER}
-  COMMAND xxd -i lib/dagwood.lcl > ${DSL_HEADER}.tmp
-  COMMAND sed -i -e "s/unsigned char/static const unsigned char/" -e "s/unsigned int/static const unsigned int/" -e "s/lib_dagwood_lcl/dagwood_dsl_lcl/g" ${DSL_HEADER}.tmp
-  COMMAND ${CMAKE_COMMAND} -E rename ${DSL_HEADER}.tmp ${DSL_HEADER}
+  COMMAND xxd -i lib/dagwood.lcl > ${DSL_HEADER}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${DSL_SOURCE}
   COMMENT "Generating embedded DSL header from lib/dagwood.lcl"

@@ -20,7 +20,7 @@
 #include <unistd.h>
 
 /* clang-format off */
-/* lcl.h must be included before lcl-io (or any libraries) 
+/* lcl.h must be included before lcl-io (or any libraries)
  * Turn clang-format off for being aggressive */
 #include <lcl.h>
 #include <lcl-io.h>
@@ -45,34 +45,16 @@ static struct {
   bool dsl_loaded;
 } g_ctx;
 
+static const lcl_embedded_lib dagwood_lib = {"lib/dagwood.lcl", lib_dagwood_lcl,
+                                             sizeof(lib_dagwood_lcl)};
+
 static bool load_embedded_dsl(lcl_interp *interp) {
   if (g_ctx.dsl_loaded) {
     return true;
   }
 
-  char *dsl_src = malloc(dagwood_dsl_lcl_len + 1);
-
-  if (!dsl_src) {
-    return false;
-  }
-
-  memcpy(dsl_src, dagwood_dsl_lcl, dagwood_dsl_lcl_len);
-  dsl_src[dagwood_dsl_lcl_len] = '\0';
-
-  lcl_value *result = NULL;
-  int rc = lcl_eval_string(interp, dsl_src, &result);
-  free(dsl_src);
-
-  if (result) {
-    lcl_ref_dec(result);
-  }
-
-  if (rc != LCL_RC_OK) {
-    const char *msg = lcl_interp_error_msg(interp);
-    int line = lcl_interp_error_line(interp);
-    fprintf(stderr, "[dagwood] Failed to load embedded DSL: line %d msg: %s\n",
-            line, msg);
-
+  if (lcl_register_embedded_lib(interp, &dagwood_lib) != 0) {
+    fprintf(stderr, "Error: failed to load dagwood library\n");
     return false;
   }
 
@@ -157,7 +139,7 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
 
   lcl_value *setup_code = NULL;
   lcl_value *body_code = NULL;
-  
+
   if (lcl_list_get(result, 0, &setup_code) != LCL_OK || !setup_code ||
       lcl_list_get(result, 1, &body_code) != LCL_OK || !body_code) {
     fprintf(stderr, "[dagwood] project '%s': invalid return from _project\n",
@@ -169,7 +151,7 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
   }
 
   const char *setup_str = lcl_value_to_string(setup_code);
-  
+
   if (setup_str && setup_str[0]) {
     lcl_value *eval_result = NULL;
     rc = lcl_eval_string(interp, setup_str, &eval_result);
@@ -190,13 +172,13 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
            "set! dagwood::current_project %s", name);
   lcl_value *set_result = NULL;
   lcl_eval_string(interp, set_proj_cmd, &set_result);
-  
+
   if (set_result) {
     lcl_ref_dec(set_result);
   }
 
   const char *body_str = lcl_value_to_string(body_code);
-  
+
   if (body_str && body_str[0]) {
     lcl_value *eval_result = NULL;
     rc = lcl_eval_string(interp, body_str, &eval_result);
@@ -205,7 +187,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     }
     if (rc != LCL_RC_OK) {
       fprintf(stderr, "[dagwood] project '%s' body evaluation failed\n", name);
-      /* Clear LCL-side current project */
       lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
       lcl_ref_dec(result);
       g_ctx.current_project = saved_project;
@@ -219,7 +200,7 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
   g_ctx.current_project = saved_project;
 
   *out = lcl_string_new(name);
-  
+
   return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
@@ -627,11 +608,9 @@ static int c_let_var(lcl_interp *interp, int argc, lcl_value **argv,
 
   const char *name = lcl_value_to_string(argv[0]);
   lcl_value *value = argv[1];
-
-  /* Define in project namespace to avoid frame-local scoping issues */
   lcl_value *proj_ns = NULL;
+
   if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
-    /* Store the actual value (not just its string representation) */
     lcl_ref_inc(value);
     lcl_ns_def(proj_ns, name, value);
     lcl_ref_dec(proj_ns);
@@ -640,8 +619,8 @@ static int c_let_var(lcl_interp *interp, int argc, lcl_value **argv,
     return LCL_RC_OK;
   }
 
-  /* Fallback to old behavior if namespace lookup fails */
   char *qname = make_qualified_name(g_ctx.current_project, name);
+
   if (!qname) {
     return LCL_RC_ERR;
   }
@@ -687,7 +666,7 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
   }
 
   lcl_value *proj_ns = NULL;
-  
+
   if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
     lcl_value *val = lcl_string_new(final_value);
     if (!val) {
@@ -828,7 +807,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
 
       size_t var_len = var_end - var_start;
       bool is_namespace_var = false;
-      
+
       for (const char *c = var_start; c < var_end - 1; c++) {
         if (c[0] == ':' && c[1] == ':') {
           is_namespace_var = true;
@@ -838,7 +817,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
 
       if (is_namespace_var && var_len > 0) {
         char *lookup = malloc(var_len + 2);
-        
+
         if (lookup) {
           lookup[0] = '$';
           memcpy(lookup + 1, var_start, var_len);
@@ -874,7 +853,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
           if (result) {
             lcl_ref_dec(result);
           }
-          
+
           p = braced ? (var_end + 1) : var_end;
           continue;
         }
