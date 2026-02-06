@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdlib.h>
 
 #include "data.h"
@@ -29,17 +30,18 @@ void t_arr_delete(t_arr *arr) {
   free(arr);
 }
 
-void t_arr_push(t_arr *arr, const dagwood_task *task) {
+bool t_arr_push(t_arr *arr, const dagwood_task *task) {
   if (arr->len >= arr->cap) {
     size_t new_cap = arr->cap == 0 ? 4 : arr->cap * 2;
     dagwood_task **new_data = realloc(arr->data, new_cap * sizeof(*new_data));
     if (!new_data) {
-      return;
+      return false;
     }
     arr->data = new_data;
     arr->cap = new_cap;
   }
   arr->data[arr->len++] = (dagwood_task *)task;
+  return true;
 }
 
 dagwood_task *t_arr_pop(t_arr *arr) {

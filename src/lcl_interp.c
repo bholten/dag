@@ -144,6 +144,14 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
       lcl_list_get(result, 1, &body_code) != LCL_OK || !body_code) {
     fprintf(stderr, "[dagwood] project '%s': invalid return from _project\n",
             name);
+
+    if (setup_code) {
+      lcl_ref_dec(setup_code);
+    }
+
+    if (body_code) {
+      lcl_ref_dec(body_code);
+    }
     lcl_ref_dec(result);
     g_ctx.current_project = saved_project;
     free(name);
@@ -155,11 +163,15 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
   if (setup_str && setup_str[0]) {
     lcl_value *eval_result = NULL;
     rc = lcl_eval_string(interp, setup_str, &eval_result);
+
     if (eval_result) {
       lcl_ref_dec(eval_result);
     }
+
     if (rc != LCL_RC_OK) {
       fprintf(stderr, "[dagwood] project '%s' setup failed\n", name);
+      lcl_ref_dec(setup_code);
+      lcl_ref_dec(body_code);
       lcl_ref_dec(result);
       g_ctx.current_project = saved_project;
       free(name);
@@ -188,6 +200,8 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     if (rc != LCL_RC_OK) {
       fprintf(stderr, "[dagwood] project '%s' body evaluation failed\n", name);
       lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
+      lcl_ref_dec(setup_code);
+      lcl_ref_dec(body_code);
       lcl_ref_dec(result);
       g_ctx.current_project = saved_project;
       free(name);
@@ -196,10 +210,13 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
   }
 
   lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
+  lcl_ref_dec(setup_code);
+  lcl_ref_dec(body_code);
   lcl_ref_dec(result);
   g_ctx.current_project = saved_project;
 
   *out = lcl_string_new(name);
+  free(name);
 
   return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
@@ -289,7 +306,6 @@ static char *strdup_safe(const char *s) {
   return dup;
 }
 
-/* Build a qualified name like "project::name" */
 static char *make_qualified_name(const char *project, const char *name) {
   size_t plen = strlen(project);
   size_t nlen = strlen(name);
@@ -539,6 +555,7 @@ static int c_file(lcl_interp *interp, int argc, lcl_value **argv,
 
     const char *path = lcl_value_to_string(argv[1]);
     char *dup = strdup_safe(path);
+
     if (!dup) {
       return LCL_RC_ERR;
     }
@@ -719,13 +736,6 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
   return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
-/* ============================================================================
- * Extraction Functions
- *
- * After LCL evaluation, extract data from namespaces into C structs.
- * ============================================================================
- */
-
 /*
  * Extract a string from a dict by key.
  * Returns a strdup'd copy or NULL if not found.
@@ -776,9 +786,9 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
   }
 
   size_t script_len = strlen(script);
-  /* Estimate output size - may grow if needed */
   size_t out_capacity = script_len * 2;
   char *out = malloc(out_capacity);
+
   if (!out) {
     return strdup_safe(script);
   }
@@ -827,6 +837,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
           free(lookup);
 
           const char *replacement = NULL;
+
           if (rc == LCL_RC_OK && result) {
             replacement = lcl_value_to_string(result);
           }
@@ -863,12 +874,15 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
     if (out_len + 2 > out_capacity) {
       out_capacity *= 2;
       char *new_out = realloc(out, out_capacity);
+
       if (!new_out) {
         free(out);
         return strdup_safe(script);
       }
+
       out = new_out;
     }
+
     out[out_len++] = *p++;
   }
 
@@ -881,6 +895,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
  */
 static char *extract_run_script(lcl_interp *interp, lcl_value *dict) {
   char *raw = extract_dict_string(dict, "run");
+
   if (!raw) {
     return NULL;
   }
@@ -904,14 +919,18 @@ static void extract_string_list(lcl_value *val, s_arr **arr) {
   if (len > 0) {
     for (size_t i = 0; i < len; i++) {
       lcl_value *item = NULL;
+
       if (lcl_list_get(val, i, &item) == LCL_OK && item) {
         const char *str = lcl_value_to_string(item);
+
         if (str && str[0]) {
           if (!*arr) {
             *arr = s_arr_new();
           }
+
           s_arr_push(*arr, strdup_safe(str));
         }
+
         lcl_ref_dec(item);
       }
     }
@@ -921,6 +940,7 @@ static void extract_string_list(lcl_value *val, s_arr **arr) {
       if (!*arr) {
         *arr = s_arr_new();
       }
+
       s_arr_push(*arr, strdup_safe(str));
     }
   }
@@ -934,12 +954,20 @@ static dagwood_task *extract_task(const char *project_name,
     return NULL;
   }
 
+  free((void *)task->name);
   task->name = strdup_safe(task_name);
+  free((void *)task->id);
   task->id = make_qualified_name(project_name, task_name);
+  free((void *)task->description);
   task->description = extract_dict_string(task_dict, "description");
-  task->run = extract_run_script(g_ctx.interp, task_dict);
-  task->always_run = extract_dict_bool(task_dict, "always_run");
+  char *run_script = extract_run_script(g_ctx.interp, task_dict);
 
+  if (run_script) {
+    free((void *)task->run);
+    task->run = run_script;
+  }
+
+  task->always_run = extract_dict_bool(task_dict, "always_run");
   task->shell = project->shell;
   task->shell_arg = project->shell_arg;
   task->wd = project->cwd;
@@ -976,6 +1004,7 @@ static void extract_project_config(lcl_interp *interp, const char *project_name,
   snprintf(config_cmd, sizeof(config_cmd), "$%s::_config", project_name);
 
   lcl_value *config_dict = NULL;
+
   if (lcl_eval_string(interp, config_cmd, &config_dict) != LCL_RC_OK ||
       !config_dict) {
     return;
@@ -984,12 +1013,14 @@ static void extract_project_config(lcl_interp *interp, const char *project_name,
   char *shell = extract_dict_string(config_dict, "shell");
 
   if (shell) {
+    free((void *)project->shell);
     project->shell = shell;
   }
 
   char *shell_arg = extract_dict_string(config_dict, "shell_arg");
 
   if (shell_arg) {
+    free((void *)project->shell_arg);
     project->shell_arg = shell_arg;
   }
 
@@ -998,6 +1029,7 @@ static void extract_project_config(lcl_interp *interp, const char *project_name,
   char *desc = extract_dict_string(config_dict, "description");
 
   if (desc) {
+    free((void *)project->description);
     project->description = desc;
   }
 
@@ -1033,12 +1065,17 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
       continue;
     }
 
+    free((void *)project->name);
     project->name = strdup_safe(project_name);
-    project->shell = dagwood_platform_shell();
-    project->shell_arg = dagwood_platform_shell_arg();
+    free((void *)project->shell);
+    project->shell = strdup_safe(dagwood_platform_shell());
+    free((void *)project->shell_arg);
+    project->shell_arg = strdup_safe(dagwood_platform_shell_arg());
 
     char cwd[4096];
+
     if (getcwd(cwd, sizeof(cwd))) {
+      free((void *)project->cwd);
       project->cwd = strdup_safe(cwd);
     }
 
@@ -1050,6 +1087,7 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
 
     lcl_value *tasks_dict = NULL;
     int rc = lcl_eval_string(interp, tasks_cmd, &tasks_dict);
+
     if (rc == LCL_RC_OK && tasks_dict) {
       char keys_cmd[1024];
       snprintf(keys_cmd, sizeof(keys_cmd), "Dict::keys $%s::_tasks",
@@ -1238,6 +1276,7 @@ void interpreter_set_cli_arg(interpreter *interp, const char *name,
   snprintf(cli_key, sizeof(cli_key), CLI_ARG_PREFIX "%s", name);
 
   lcl_value *val = lcl_string_new(value);
+
   if (val) {
     lcl_define(interp->interp, cli_key, val);
   }
@@ -1249,8 +1288,10 @@ void interpreter_delete(interpreter *interp) {
   }
 
   p_map *p = interp->project_registry;
+
   for (size_t i = p_map_begin(p); i < p_map_end(p); i++) {
     dagwood_project *project = p_map_value(p, i);
+
     if (project) {
       dagwood_project_delete(project);
     }
@@ -1268,6 +1309,7 @@ void interpreter_delete(interpreter *interp) {
 
   for (size_t j = t_map_begin(t); j < t_map_end(t); j++) {
     dagwood_task *task = t_map_value(t, j);
+
     if (task) {
       dagwood_task_delete(task);
     }
@@ -1344,6 +1386,7 @@ t_map *interpreter_task_registry(interpreter *interp, const char *file) {
     if (build(interp, file) != INTERP_OK) {
       return NULL;
     }
+
     interp->built = true;
   }
 
@@ -1368,6 +1411,7 @@ interp_result interpreter_list_all(interpreter *interp) {
 
   for (size_t i = p_map_begin(p); i < p_map_end(p); i++) {
     dagwood_project *proj = p_map_value(p, i);
+
     if (proj) {
       printf("  %s\n", proj->name);
 
@@ -1382,8 +1426,10 @@ interp_result interpreter_list_all(interpreter *interp) {
 
   for (size_t i = t_map_begin(t); i < t_map_end(t); i++) {
     dagwood_task *task = t_map_value(t, i);
+
     if (task) {
       printf("  %s\n", task->id);
+
       if (task->description) {
         printf("    description: %s\n", task->description);
       }
@@ -1426,9 +1472,11 @@ interp_result interpreter_repl(interpreter *interp) {
     if (rc == LCL_RC_OK) {
       if (result) {
         const char *str = lcl_value_to_string(result);
+
         if (str && str[0]) {
           printf("%s\n", str);
         }
+
         lcl_ref_dec(result);
       }
     } else {

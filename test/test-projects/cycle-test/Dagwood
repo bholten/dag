@@ -1,0 +1,17 @@
+project cycle_test {
+    task a {
+        description "Task A depends on B"
+        depends_on cycle_test::b
+        run {
+            echo "task a"
+        }
+    }
+
+    task b {
+        description "Task B depends on A (creates cycle)"
+        depends_on cycle_test::a
+        run {
+            echo "task b"
+        }
+    }
+}

@@ -1,0 +1,8 @@
+project error_test {
+    task will_fail {
+        description "This task should fail because the command exits non-zero"
+        run {
+            exit 42
+        }
+    }
+}

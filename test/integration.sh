@@ -100,7 +100,31 @@ run_test_output_contains() {
     TESTS_RUN=$((TESTS_RUN + 1))
 
     local output
+
     if output=$("$@" 2>&1) && echo "$output" | grep -qF -- "$expected"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "$desc"
+        return 0
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "$desc (expected '$expected' in output)"
+        return 1
+    fi
+}
+
+# Check that command output contains a string (regardless of exit code)
+# Usage: run_test_output_contains_any_exit "description" "expected" command [args...]
+run_test_output_contains_any_exit() {
+    local desc="$1"
+    local expected="$2"
+    shift 2
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+
+    local output
+    output=$("$@" 2>&1) || true
+
+    if echo "$output" | grep -qF -- "$expected"; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
         log_pass "$desc"
         return 0
@@ -522,6 +546,75 @@ test_namespaces() {
 }
 
 # ============================================================================
+# Working Directory Tests
+# ============================================================================
+
+test_chdir() {
+    log_section "Working Directory (chdir)"
+
+    local proj="$TEST_PROJECTS/chdir-test"
+
+    # Clean up
+    rm -f "$proj/cwd_output.txt"
+
+    # Run the task that writes pwd to a file
+    run_test "chdir task runs" "$DAGWOOD" -C "$proj" "chdir_test::check_cwd"
+
+    # Verify the output file was created
+    run_test "cwd_output.txt created" test -f "$proj/cwd_output.txt"
+
+    # Verify the working directory in the output matches the project directory
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local expected_dir
+    expected_dir=$(cd "$proj" && pwd)
+    local actual_dir
+    actual_dir=$(cat "$proj/cwd_output.txt" | tr -d '[:space:]')
+
+    if [[ "$actual_dir" == "$expected_dir" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "task ran in correct working directory"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "wrong working directory (expected '$expected_dir', got '$actual_dir')"
+    fi
+
+    # Clean up
+    "$DAGWOOD" -C "$proj" "chdir_test::clean" >/dev/null 2>&1 || true
+}
+
+# ============================================================================
+# Spawn Error Tests
+# ============================================================================
+
+test_spawn_error() {
+    log_section "Task Failure Handling"
+
+    local proj="$TEST_PROJECTS/error-test"
+
+    # Task that exits non-zero should cause dagwood to fail
+    run_test_fails "task with non-zero exit fails" "$DAGWOOD" -C "$proj" "error_test::will_fail"
+
+    # Check that the error message mentions task failure
+    run_test_output_contains_any_exit "task failure reported" "failed" "$DAGWOOD" -C "$proj" "error_test::will_fail"
+}
+
+# ============================================================================
+# Cycle Detection Tests
+# ============================================================================
+
+test_cycle_detection() {
+    log_section "Cycle Detection"
+
+    local proj="$TEST_PROJECTS/cycle-test"
+
+    # Running a project with circular dependencies should fail
+    run_test_fails "cyclic project fails" "$DAGWOOD" -C "$proj"
+
+    # Should mention cycle in error output
+    run_test_output_contains_any_exit "cycle error reported" "cycle" "$DAGWOOD" -C "$proj"
+}
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -542,6 +635,9 @@ main() {
     test_error_handling
     test_commands
     test_namespaces
+    test_chdir
+    test_spawn_error
+    test_cycle_detection
 
     # Summary
     log_section "Summary"

@@ -43,15 +43,17 @@ static int g_cli_argc = 0;
 
 static void handle_signal(int signum) {
   if (g_graph && g_graph->pidsv_unsafe) {
-    fprintf(stderr, "[dagwood] caught signal %d, terminating children\n",
-            signum);
+    /* Use write() instead of fprintf() -- async-signal-safe */
+    const char msg[] = "[dagwood] caught signal, terminating children\n";
+    (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+
     for (size_t i = 0; i < g_graph->pidsc; i++) {
       if (g_graph->pidsv_unsafe[i] > 0) {
         kill(-g_graph->pidsv_unsafe[i], SIGTERM);
       }
     }
   }
-  exit(128 + signum);
+  _exit(128 + signum);
 }
 
 static void setup_signal_handlers(void) {

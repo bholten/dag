@@ -10,10 +10,15 @@
 
 dagwood_task *dagwood_task_new(void) {
   dagwood_task *t = calloc(1, sizeof(*t));
+
+  if (!t) {
+    return NULL;
+  }
+
   t->id = NULL;
   t->name = NULL;
   t->description = NULL;
-  t->run = "exit 0";
+  t->run = strdup("exit 0");
   t->shell = NULL;
   t->shell_arg = NULL;
   t->wd = NULL;
@@ -24,6 +29,13 @@ dagwood_task *dagwood_task_new(void) {
 
   t->edges = t_arr_new();
   t->reverse_edges = t_arr_new();
+
+  if (!t->depends_on || !t->inputs || !t->outputs || !t->edges ||
+      !t->reverse_edges) {
+    dagwood_task_delete(t);
+    return NULL;
+  }
+
   t->in_degree = 0;
   t->always_run = false;
 
@@ -31,9 +43,18 @@ dagwood_task *dagwood_task_new(void) {
 }
 
 void dagwood_task_delete(dagwood_task *task) {
-  s_arr_delete(task->depends_on);
-  s_arr_delete(task->inputs);
-  s_arr_delete(task->outputs);
+  if (!task) {
+    return;
+  }
+
+  free((void *)task->id);
+  free((void *)task->name);
+  free((void *)task->description);
+  free((void *)task->run);
+
+  s_arr_delete_contents(task->depends_on);
+  s_arr_delete_contents(task->inputs);
+  s_arr_delete_contents(task->outputs);
 
   t_arr_delete(task->edges);
   t_arr_delete(task->reverse_edges);

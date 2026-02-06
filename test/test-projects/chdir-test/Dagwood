@@ -1,0 +1,16 @@
+project chdir_test {
+    task check_cwd {
+        description "Verify that the task runs in the project working directory"
+        outputs cwd_output.txt
+        run {
+            pwd > cwd_output.txt
+        }
+    }
+
+    command clean {
+        description "Clean test output"
+        run {
+            rm -f cwd_output.txt
+        }
+    }
+}

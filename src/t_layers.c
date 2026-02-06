@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdlib.h>
 
 #include "data.h"
@@ -40,17 +41,18 @@ void t_layers_delete(t_layers *layers) {
   free(layers);
 }
 
-void t_layers_push(t_layers *layers, const t_arr *layer) {
+bool t_layers_push(t_layers *layers, const t_arr *layer) {
   if (layers->len >= layers->cap) {
     size_t new_cap = layers->cap == 0 ? 4 : layers->cap * 2;
     t_arr **new_data = realloc(layers->data, new_cap * sizeof(*new_data));
     if (!new_data) {
-      return;
+      return false;
     }
     layers->data = new_data;
     layers->cap = new_cap;
   }
   layers->data[layers->len++] = (t_arr *)layer;
+  return true;
 }
 
 size_t t_layers_len(t_layers *layers) {

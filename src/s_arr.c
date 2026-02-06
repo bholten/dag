@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -30,17 +31,35 @@ void s_arr_delete(s_arr *arr) {
   free(arr);
 }
 
-void s_arr_push(s_arr *arr, const char *str) {
+void s_arr_delete_contents(s_arr *arr) {
+  if (!arr) {
+    return;
+  }
+
+  for (size_t i = 0; i < arr->len; i++) {
+    free((void *)arr->data[i]);
+  }
+
+  free(arr->data);
+  free(arr);
+}
+
+bool s_arr_push(s_arr *arr, const char *str) {
   if (arr->len >= arr->cap) {
     size_t new_cap = arr->cap == 0 ? 4 : arr->cap * 2;
     const char **new_data = realloc(arr->data, new_cap * sizeof(*new_data));
+
     if (!new_data) {
-      return;
+      return false;
     }
+
     arr->data = new_data;
     arr->cap = new_cap;
   }
+
   arr->data[arr->len++] = str;
+
+  return true;
 }
 
 size_t s_arr_len(s_arr *arr) {

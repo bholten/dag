@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
-#include <assert.h>
+#include <errno.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -153,14 +154,13 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
     return true;
   }
 
-  /* Tasks with no outputs are always stale (side-effect only, can't track) */
   if (s_arr_len(task->outputs) == 0) {
     if (s_arr_len(task->depends_on) == 0) {
       printf("[dagwood] [%s] stale - no outputs (side-effect task)\n",
              task->name);
       return true;
     }
-    /* Has depends_on: stale if any dependency is stale */
+
     for (size_t i = 0; i < s_arr_len(task->depends_on); i++) {
       const char *dep_name = s_arr_get(task->depends_on, i);
       if (!dep_name) {
@@ -252,10 +252,17 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
   }
 
   size_t count = t_arr_len(layer);
-  pid_t pids[count];
+  pid_t *pids = calloc(count, sizeof(pid_t));
+
+  if (!pids) {
+    fprintf(stderr, "[dagwood] failed to allocate pid array\n");
+    return false;
+  }
 
   g->pidsv_unsafe = pids;
   g->pidsc = count;
+
+  bool spawn_ok = true;
 
   for (size_t i = 0; i < count; i++) {
     dagwood_task *t = t_arr_get(layer, i);
@@ -267,6 +274,12 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     }
 
     fprintf(stdout, "[dagwood] [%s] spawning task number %zu\n", t->name, i);
+
+    if (!t->shell || !t->shell_arg) {
+      fprintf(stderr, "[dagwood] [%s] missing shell or shell_arg\n", t->name);
+      pids[i] = -1;
+      continue;
+    }
 
     pid_t pid;
     posix_spawnattr_t attr;
@@ -284,40 +297,47 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
       posix_spawn_file_actions_addchdir_np(&actions, t->wd);
     }
 
-    assert(t->shell != NULL);
-    assert(t->shell_arg != NULL);
-
     char *argv[] = {(char *)t->shell, (char *)t->shell_arg, (char *)t->run,
                     NULL};
 
     int spawn_status =
-        posix_spawn(&pid, dagwood_platform_shell(), NULL, &attr, argv, environ);
-
-    if (spawn_status == 0) {
-      printf("[dagwood] [%s] spawned\n", t->name);
-    } else {
-      fprintf(stderr, "[dagwood] [%s] spawn failed\n", t->name);
-      return EXIT_FAILURE;
-    }
+        posix_spawn(&pid, dagwood_platform_shell(), &actions, &attr, argv, environ);
 
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);
-    pids[i] = pid;
+
+    if (spawn_status == 0) {
+      printf("[dagwood] [%s] spawned\n", t->name);
+      pids[i] = pid;
+    } else {
+      fprintf(stderr, "[dagwood] [%s] spawn failed\n", t->name);
+      /* Kill already-spawned processes in this layer */
+      for (size_t k = 0; k < i; k++) {
+        if (pids[k] > 0) {
+          kill(-pids[k], SIGTERM);
+        }
+      }
+      spawn_ok = false;
+      break;
+    }
   }
 
-  bool layer_successful = true;
+  bool layer_successful = spawn_ok;
 
   for (size_t j = 0; j < count; j++) {
-    if (pids[j] < 0) {
+    if (pids[j] <= 0) {
       continue;
     }
 
-    int status;
+    int status = 0;
 
     if (waitpid(pids[j], &status, 0) == -1) {
+      int saved_errno = errno;
       fprintf(stderr, "[dagwood] waitpid failed in layer %zu\n", j);
+      errno = saved_errno;
       perror("waitpid failed");
       layer_successful = false;
+      continue;
     }
 
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
@@ -325,6 +345,10 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
       layer_successful = false;
     }
   }
+
+  g->pidsv_unsafe = NULL;
+  g->pidsc = 0;
+  free(pids);
 
   return layer_successful;
 }

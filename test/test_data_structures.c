@@ -451,6 +451,232 @@ TEST(t_layers_push_and_get) {
 }
 
 /* ============================================================================
+ * Push return value tests
+ * ============================================================================ */
+
+TEST(s_arr_push_returns_true) {
+    s_arr *arr = s_arr_new();
+    ASSERT(s_arr_push(arr, "hello"));
+    ASSERT(s_arr_push(arr, "world"));
+    ASSERT_EQ(s_arr_len(arr), 2);
+    s_arr_delete(arr);
+    return 1;
+}
+
+TEST(t_arr_push_returns_true) {
+    t_arr *arr = t_arr_new();
+    dagwood_task t1;
+    ASSERT(t_arr_push(arr, &t1));
+    ASSERT_EQ(t_arr_len(arr), 1);
+    t_arr_delete(arr);
+    return 1;
+}
+
+TEST(t_layers_push_returns_true) {
+    t_layers *layers = t_layers_new();
+    t_arr *layer1 = t_arr_new();
+    ASSERT(t_layers_push(layers, layer1));
+    ASSERT_EQ(t_layers_len(layers), 1);
+    t_layers_delete(layers);
+    return 1;
+}
+
+TEST(s_arr_push_10000_items) {
+    s_arr *arr = s_arr_new();
+    char *strings[10000];
+
+    for (int i = 0; i < 10000; i++) {
+        strings[i] = malloc(16);
+        snprintf(strings[i], 16, "s_%d", i);
+        ASSERT(s_arr_push(arr, strings[i]));
+    }
+
+    ASSERT_EQ(s_arr_len(arr), 10000);
+    ASSERT_STR_EQ(s_arr_get(arr, 0), "s_0");
+    ASSERT_STR_EQ(s_arr_get(arr, 9999), "s_9999");
+
+    s_arr_delete(arr);
+    for (int i = 0; i < 10000; i++) {
+        free(strings[i]);
+    }
+    return 1;
+}
+
+/* ============================================================================
+ * Task memory tests
+ * ============================================================================ */
+
+TEST(task_create_and_delete) {
+    dagwood_task *t = dagwood_task_new();
+    ASSERT_NOT_NULL(t);
+
+    /* Verify defaults */
+    ASSERT_NULL(t->id);
+    ASSERT_NULL(t->name);
+    ASSERT_NULL(t->description);
+    ASSERT_NOT_NULL(t->run);
+    ASSERT_STR_EQ(t->run, "exit 0");
+
+    dagwood_task_delete(t);
+    return 1;
+}
+
+TEST(task_memory_with_strdup_fields) {
+    dagwood_task *t = dagwood_task_new();
+    ASSERT_NOT_NULL(t);
+
+    /* Set strdup'd fields like lcl_interp.c does */
+    free((void *)t->id);
+    t->id = strdup("myproject::build");
+    free((void *)t->name);
+    t->name = strdup("build");
+    free((void *)t->description);
+    t->description = strdup("Build the project");
+    free((void *)t->run);
+    t->run = strdup("make -j4");
+
+    /* Add some string array contents */
+    s_arr_push(t->inputs, strdup("src/main.c"));
+    s_arr_push(t->inputs, strdup("src/util.c"));
+    s_arr_push(t->outputs, strdup("build/app"));
+    s_arr_push(t->depends_on, strdup("myproject::prepare"));
+
+    /* Delete should free everything without leaks (verified by ASan) */
+    dagwood_task_delete(t);
+    return 1;
+}
+
+TEST(s_arr_delete_contents_frees_strings) {
+    s_arr *arr = s_arr_new();
+    s_arr_push(arr, strdup("hello"));
+    s_arr_push(arr, strdup("world"));
+    s_arr_push(arr, strdup("test"));
+
+    ASSERT_EQ(s_arr_len(arr), 3);
+
+    /* s_arr_delete_contents should free each string + the array (verified by ASan) */
+    s_arr_delete_contents(arr);
+    return 1;
+}
+
+/* ============================================================================
+ * dag_build tests
+ * ============================================================================ */
+
+TEST(dag_build_twice_same_result) {
+    /* Verify dag_build doesn't destructively mutate in_degree */
+    dagwood_task t1 = {0};
+    dagwood_task t2 = {0};
+    t1.id = "t1";
+    t1.name = "t1";
+    t1.run = "echo t1";
+    t1.edges = t_arr_new();
+    t1.reverse_edges = t_arr_new();
+    t1.depends_on = s_arr_new();
+    t1.inputs = s_arr_new();
+    t1.outputs = s_arr_new();
+
+    t2.id = "t2";
+    t2.name = "t2";
+    t2.run = "echo t2";
+    t2.edges = t_arr_new();
+    t2.reverse_edges = t_arr_new();
+    t2.depends_on = s_arr_new();
+    t2.inputs = s_arr_new();
+    t2.outputs = s_arr_new();
+
+    /* t2 depends on t1 */
+    t_arr_push(t2.edges, &t1);
+    t_arr_push(t1.reverse_edges, &t2);
+    t2.in_degree = 1;
+    t1.in_degree = 0;
+
+    t_arr *arr = t_arr_new();
+    t_arr_push(arr, &t1);
+    t_arr_push(arr, &t2);
+
+    /* First build */
+    t_layers *layers1 = t_layers_new();
+    ASSERT(dag_build(arr, layers1));
+    ASSERT_EQ(t_layers_len(layers1), 2);
+
+    /* Second build on same graph - should produce same result */
+    t_layers *layers2 = t_layers_new();
+    ASSERT(dag_build(arr, layers2));
+    ASSERT_EQ(t_layers_len(layers2), 2);
+
+    t_layers_delete(layers1);
+    t_layers_delete(layers2);
+    t_arr_delete(arr);
+
+    /* Clean up task internals (don't use dagwood_task_delete since fields aren't heap-allocated) */
+    t_arr_delete(t1.edges);
+    t_arr_delete(t1.reverse_edges);
+    s_arr_delete(t1.depends_on);
+    s_arr_delete(t1.inputs);
+    s_arr_delete(t1.outputs);
+    t_arr_delete(t2.edges);
+    t_arr_delete(t2.reverse_edges);
+    s_arr_delete(t2.depends_on);
+    s_arr_delete(t2.inputs);
+    s_arr_delete(t2.outputs);
+
+    return 1;
+}
+
+TEST(dag_build_detects_cycle) {
+    dagwood_task t1 = {0};
+    dagwood_task t2 = {0};
+    t1.id = "t1";
+    t1.name = "t1";
+    t1.run = "echo t1";
+    t1.edges = t_arr_new();
+    t1.reverse_edges = t_arr_new();
+    t1.depends_on = s_arr_new();
+    t1.inputs = s_arr_new();
+    t1.outputs = s_arr_new();
+
+    t2.id = "t2";
+    t2.name = "t2";
+    t2.run = "echo t2";
+    t2.edges = t_arr_new();
+    t2.reverse_edges = t_arr_new();
+    t2.depends_on = s_arr_new();
+    t2.inputs = s_arr_new();
+    t2.outputs = s_arr_new();
+
+    /* Create cycle: t1 -> t2 -> t1 */
+    t_arr_push(t1.edges, &t2);
+    t_arr_push(t2.reverse_edges, &t1);
+    t_arr_push(t2.edges, &t1);
+    t_arr_push(t1.reverse_edges, &t2);
+    t1.in_degree = 1;
+    t2.in_degree = 1;
+
+    t_arr *arr = t_arr_new();
+    t_arr_push(arr, &t1);
+    t_arr_push(arr, &t2);
+
+    t_layers *layers = t_layers_new();
+    ASSERT(!dag_build(arr, layers));
+
+    t_layers_delete(layers);
+    t_arr_delete(arr);
+    t_arr_delete(t1.edges);
+    t_arr_delete(t1.reverse_edges);
+    s_arr_delete(t1.depends_on);
+    s_arr_delete(t1.inputs);
+    s_arr_delete(t1.outputs);
+    t_arr_delete(t2.edges);
+    t_arr_delete(t2.reverse_edges);
+    s_arr_delete(t2.depends_on);
+    s_arr_delete(t2.inputs);
+    s_arr_delete(t2.outputs);
+
+    return 1;
+}
+
+/* ============================================================================
  * Main
  * ============================================================================ */
 
@@ -493,6 +719,21 @@ int main(void) {
     printf("\nt_layers (array of t_arr*):\n");
     RUN_TEST(t_layers_new_and_delete);
     RUN_TEST(t_layers_push_and_get);
+
+    printf("\nPush return values:\n");
+    RUN_TEST(s_arr_push_returns_true);
+    RUN_TEST(t_arr_push_returns_true);
+    RUN_TEST(t_layers_push_returns_true);
+    RUN_TEST(s_arr_push_10000_items);
+
+    printf("\nTask memory:\n");
+    RUN_TEST(task_create_and_delete);
+    RUN_TEST(task_memory_with_strdup_fields);
+    RUN_TEST(s_arr_delete_contents_frees_strings);
+
+    printf("\nDAG build:\n");
+    RUN_TEST(dag_build_twice_same_result);
+    RUN_TEST(dag_build_detects_cycle);
 
     printf("\n==================================\n");
     printf("Results: %d/%d tests passed\n", tests_passed, tests_run);

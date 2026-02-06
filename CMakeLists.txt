@@ -85,6 +85,7 @@ if(DAGWOOD_BUILD_TESTS)
     src/ts_map.c
     src/t_layers.c
     src/p_map.c
+    src/dag.c
     src/task.c
     src/project.c
     src/shell.c

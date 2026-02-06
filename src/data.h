@@ -8,7 +8,8 @@ typedef struct s_arr s_arr;
 
 s_arr *s_arr_new();
 void s_arr_delete(s_arr *arr);
-void s_arr_push(s_arr *arr, const char *str);
+void s_arr_delete_contents(s_arr *arr);
+bool s_arr_push(s_arr *arr, const char *str);
 size_t s_arr_len(s_arr *arr);
 const char *s_arr_get(s_arr *arr, size_t index);
 const char *s_arr_pop(s_arr *arr);
@@ -19,7 +20,7 @@ typedef struct t_arr t_arr;
 
 t_arr *t_arr_new();
 void t_arr_delete(t_arr *arr);
-void t_arr_push(t_arr *arr, const dagwood_task *task);
+bool t_arr_push(t_arr *arr, const dagwood_task *task);
 size_t t_arr_len(t_arr *arr);
 dagwood_task *t_arr_get(t_arr *arr, size_t index);
 dagwood_task *t_arr_pop(t_arr *arr);
@@ -28,7 +29,7 @@ typedef struct t_layers t_layers;
 
 t_layers *t_layers_new();
 void t_layers_delete(t_layers *layers);
-void t_layers_push(t_layers *layers, const t_arr *layer);
+bool t_layers_push(t_layers *layers, const t_arr *layer);
 size_t t_layers_len(t_layers *layers);
 t_arr *t_layers_get(t_layers *layers, size_t index);
 t_arr *t_layers_pop(t_layers *layers);
