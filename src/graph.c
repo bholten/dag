@@ -300,8 +300,8 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     char *argv[] = {(char *)t->shell, (char *)t->shell_arg, (char *)t->run,
                     NULL};
 
-    int spawn_status =
-        posix_spawn(&pid, dagwood_platform_shell(), &actions, &attr, argv, environ);
+    int spawn_status = posix_spawn(&pid, dagwood_platform_shell(), &actions,
+                                   &attr, argv, environ);
 
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);

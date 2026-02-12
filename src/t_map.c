@@ -126,6 +126,7 @@ static int t_map_resize(t_map *table, size_t new_cap) {
 
       for (j = 0; j < new_cap; j++) {
         size_t probe = (idx + j) % new_cap;
+
         if (!table->used[probe]) {
           table->keys[probe] = old_keys[i];
           table->values[probe] = old_values[i];

@@ -2,14 +2,14 @@
  * Dagwood CLI - A task runner with DAG-based dependency resolution
  *
  * Usage:
- *   dagwood                      Run whole project (default: ./Dagwood)
- *   dagwood <task>               Run a specific task
- *   dagwood KEY=value <task>     Run task with build arguments
- *   dagwood run <task>           Run task with additional options
- *   dagwood -l                   List all tasks
- *   dagwood -d                   Print DAG as Graphviz dot
- *   dagwood -y                   Dry run (show what would execute)
- *   dagwood -r                   Start REPL
+ *   dag                      Run whole project (default: ./Dagwood)
+ *   dag <task>               Run a specific task
+ *   dag KEY=value <task>     Run task with build arguments
+ *   dag run <task>           Run task with additional options
+ *   dag -l                   List all tasks
+ *   dag -d                   Print DAG as Graphviz dot
+ *   dag -y                   Dry run (show what would execute)
+ *   dag -r                   Start REPL
  */
 
 #include <getopt.h>
@@ -24,7 +24,7 @@
 #include "interpreter.h"
 
 #define DAGWOOD_VERSION "0.1.0"
-#define DEFAULT_FILE "Dagwood"
+#define DEFAULT_FILE "Dag"
 #define MAIN_NS_PREFIX "::___dagwood::main::"
 
 typedef struct {
@@ -36,14 +36,8 @@ static dagwood_graph *g_graph = NULL;
 static cli_arg *g_cli_args = NULL;
 static int g_cli_argc = 0;
 
-/* ============================================================================
- * Signal Handling
- * ============================================================================
- */
-
 static void handle_signal(int signum) {
   if (g_graph && g_graph->pidsv_unsafe) {
-    /* Use write() instead of fprintf() -- async-signal-safe */
     const char msg[] = "[dagwood] caught signal, terminating children\n";
     (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
 
@@ -65,14 +59,9 @@ static void setup_signal_handlers(void) {
   sigaction(SIGTERM, &sa, NULL);
 }
 
-/* ============================================================================
- * Help and Version
- * ============================================================================
- */
-
 // clang-format off
 static void show_help(void) {
-  puts("Usage: dagwood [options] [KEY=value...] [target]");
+  puts("Usage: dag [options] [KEY=value...] [target]");
   puts("");
   puts("Options:");
   puts("  -C, --directory DIR    Change to DIR before running");
@@ -88,11 +77,11 @@ static void show_help(void) {
   puts("  KEY=value              Override default value for 'arg KEY default'");
   puts("");
   puts("Examples:");
-  puts("  dagwood                      Run all tasks in ./Dagwood");
-  puts("  dagwood build                Run the 'build' task");
-  puts("  dagwood BUILD_TYPE=release   Set BUILD_TYPE arg to 'release'");
-  puts("  dagwood -f custom.dw         Use custom.dw instead of Dagwood");
-  puts("  dagwood -C src build         Change to src/, then run 'build'");
+  puts("  dag                      Run all tasks in ./Dag");
+  puts("  dag build                Run the 'build' task");
+  puts("  dag BUILD_TYPE=release   Set BUILD_TYPE arg to 'release'");
+  puts("  dag -f custom.dw         Use custom.dw instead of Dag");
+  puts("  dag -C src build         Change to src/, then run 'build'");
 }
 // clang-format on
 
@@ -181,11 +170,6 @@ static dagwood_task *env_find_task(dagwood_env *env, const char *name) {
   }
   return task;
 }
-
-/* ============================================================================
- * Commands
- * ============================================================================
- */
 
 static int cmd_list(const char *file) {
   dagwood_env *env = env_new(file);
@@ -279,7 +263,6 @@ static int cmd_run_task(const char *file, const char *name, int force) {
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-/* Handle `dagwood run [--force] <task>` subcommand */
 static int cmd_run_subcommand(const char *file, int argc, char **argv) {
   static struct option opts[] = {
       {"force", no_argument, NULL, 'f'},
@@ -304,10 +287,11 @@ static int cmd_run_subcommand(const char *file, int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  /* Build qualified name for main namespace */
   const char *task = argv[optind];
+
   size_t qlen = strlen(MAIN_NS_PREFIX) + strlen(task) + 1;
   char *qname = malloc(qlen);
+
   if (!qname) {
     return EXIT_FAILURE;
   }
@@ -315,21 +299,16 @@ static int cmd_run_subcommand(const char *file, int argc, char **argv) {
   snprintf(qname, qlen, "%s%s", MAIN_NS_PREFIX, task);
   int result = cmd_run_task(file, qname, force);
   free(qname);
+
   return result;
 }
 
-/* ============================================================================
- * Main Entry Point
- * ============================================================================
- */
-
-/* Parse KEY=value and separate from task name */
 static void parse_cli_args(int argc, char **argv, int start_idx,
                            const char **task_out) {
   *task_out = NULL;
 
-  /* Count KEY=value args */
   int arg_count = 0;
+
   for (int i = start_idx; i < argc; i++) {
     if (strchr(argv[i], '=') != NULL) {
       arg_count++;
@@ -345,10 +324,11 @@ static void parse_cli_args(int argc, char **argv, int start_idx,
 
   for (int i = start_idx; i < argc; i++) {
     char *eq = strchr(argv[i], '=');
+
     if (eq != NULL) {
-      /* KEY=value argument */
       size_t name_len = (size_t)(eq - argv[i]);
       g_cli_args[g_cli_argc].name = malloc(name_len + 1);
+
       if (g_cli_args[g_cli_argc].name) {
         memcpy(g_cli_args[g_cli_argc].name, argv[i], name_len);
         g_cli_args[g_cli_argc].name[name_len] = '\0';
@@ -356,7 +336,6 @@ static void parse_cli_args(int argc, char **argv, int start_idx,
       g_cli_args[g_cli_argc].value = strdup(eq + 1);
       g_cli_argc++;
     } else if (*task_out == NULL) {
-      /* First non-KEY=value is the task name */
       *task_out = argv[i];
     }
   }
@@ -367,6 +346,7 @@ static void free_cli_args(void) {
     free(g_cli_args[i].name);
     free(g_cli_args[i].value);
   }
+
   free(g_cli_args);
   g_cli_args = NULL;
   g_cli_argc = 0;

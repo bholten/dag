@@ -196,8 +196,10 @@ dagwood_project *p_map_value(p_map *p, size_t index) {
   if (index >= p->cap) {
     return NULL;
   }
+
   if (!p->used[index]) {
     return NULL;
   }
+
   return p->values[index];
 }

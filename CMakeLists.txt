@@ -60,6 +60,7 @@ set(DAGWOOD_SOURCES
 )
 
 add_executable(dagwood ${DAGWOOD_SOURCES})
+set_target_properties(dagwood PROPERTIES OUTPUT_NAME dag)
 
 target_compile_options(dagwood PRIVATE ${DAGWOOD_COMPILE_OPTIONS})
 

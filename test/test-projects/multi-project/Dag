@@ -1,9 +1,9 @@
 ;; Multi-project test
 ;; Tests import functionality and cross-project dependencies
 
-import project_1/Dagwood
-import project_2/Dagwood
-import project_3/Dagwood
+import project_1/Dag
+import project_2/Dag
+import project_3/Dag
 
 project multiproject {
     def BUILD_DIR build

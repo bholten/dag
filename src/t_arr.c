@@ -26,6 +26,7 @@ void t_arr_delete(t_arr *arr) {
   if (!arr) {
     return;
   }
+
   free(arr->data);
   free(arr);
 }
@@ -34,13 +35,17 @@ bool t_arr_push(t_arr *arr, const dagwood_task *task) {
   if (arr->len >= arr->cap) {
     size_t new_cap = arr->cap == 0 ? 4 : arr->cap * 2;
     dagwood_task **new_data = realloc(arr->data, new_cap * sizeof(*new_data));
+
     if (!new_data) {
       return false;
     }
+
     arr->data = new_data;
     arr->cap = new_cap;
   }
+
   arr->data[arr->len++] = (dagwood_task *)task;
+
   return true;
 }
 
@@ -48,6 +53,7 @@ dagwood_task *t_arr_pop(t_arr *arr) {
   if (arr->len == 0) {
     return NULL;
   }
+
   return arr->data[--arr->len];
 }
 
@@ -55,6 +61,7 @@ dagwood_task *t_arr_get(t_arr *arr, size_t index) {
   if (index >= arr->len) {
     return NULL;
   }
+
   return arr->data[index];
 }
 

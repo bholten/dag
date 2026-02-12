@@ -1,11 +1,3 @@
-/*
- * lcl_interp.c - LCL interpreter integration for Dagwood
- *
- * This file implements the Dagwood DSL commands using LCL.
- * Commands directly populate C data structures instead of
- * going through an intermediate dictionary format.
- */
-
 #define _GNU_SOURCE
 
 #include <assert.h>
@@ -736,10 +728,6 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
   return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
-/*
- * Extract a string from a dict by key.
- * Returns a strdup'd copy or NULL if not found.
- */
 static char *extract_dict_string(lcl_value *dict, const char *key) {
   lcl_value *val = NULL;
   if (lcl_dict_get(dict, key, &val) != LCL_OK || !val) {
@@ -751,9 +739,6 @@ static char *extract_dict_string(lcl_value *dict, const char *key) {
   return result;
 }
 
-/*
- * Extract a bool from a dict by key.
- */
 static bool extract_dict_bool(lcl_value *dict, const char *key) {
   lcl_value *val = NULL;
   if (lcl_dict_get(dict, key, &val) != LCL_OK || !val) {
@@ -765,21 +750,11 @@ static bool extract_dict_bool(lcl_value *dict, const char *key) {
   return result;
 }
 
-/*
- * Check if a character is valid in an LCL identifier.
- */
 static bool is_ident_char(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
          (c >= '0' && c <= '9') || c == '_' || c == ':';
 }
 
-/*
- * Substitute namespace variables in a run script.
- * Only substitutes variables containing "::" (LCL namespace vars).
- * Preserves shell variables like $1, $$, $?, etc.
- *
- * Handles both $var::name and ${var::name} syntax.
- */
 static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
   if (!script) {
     return NULL;
@@ -806,6 +781,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
         braced = true;
         var_start++;
         var_end = var_start;
+
         while (*var_end && *var_end != '}') {
           var_end++;
         }
@@ -844,6 +820,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
 
           if (replacement) {
             size_t repl_len = strlen(replacement);
+
             while (out_len + repl_len + 1 > out_capacity) {
               out_capacity *= 2;
               char *new_out = realloc(out, out_capacity);
@@ -852,11 +829,14 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
                 if (result) {
                   lcl_ref_dec(result);
                 }
+
                 free(out);
                 return strdup_safe(script);
               }
+
               out = new_out;
             }
+
             memcpy(out + out_len, replacement, repl_len);
             out_len += repl_len;
           }
@@ -890,9 +870,6 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
   return out;
 }
 
-/*
- * Extract a run script from a dict, with namespace variable substitution.
- */
 static char *extract_run_script(lcl_interp *interp, lcl_value *dict) {
   char *raw = extract_dict_string(dict, "run");
 
@@ -905,10 +882,6 @@ static char *extract_run_script(lcl_interp *interp, lcl_value *dict) {
   return substituted;
 }
 
-/*
- * Extract a string list from a dict value.
- * Can handle both single strings and lists.
- */
 static void extract_string_list(lcl_value *val, s_arr **arr) {
   if (!val) {
     return;
@@ -936,6 +909,7 @@ static void extract_string_list(lcl_value *val, s_arr **arr) {
     }
   } else {
     const char *str = lcl_value_to_string(val);
+
     if (str && str[0]) {
       if (!*arr) {
         *arr = s_arr_new();
@@ -950,6 +924,7 @@ static dagwood_task *extract_task(const char *project_name,
                                   const char *task_name, lcl_value *task_dict,
                                   dagwood_project *project) {
   dagwood_task *task = dagwood_task_new();
+
   if (!task) {
     return NULL;
   }

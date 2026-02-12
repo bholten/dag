@@ -17,7 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DAGWOOD="${DAGWOOD:-$REPO_ROOT/build/dagwood}"
+DAGWOOD="${DAGWOOD:-$REPO_ROOT/build/dag}"
 TEST_PROJECTS="$SCRIPT_DIR/test-projects"
 
 # Test counters
@@ -206,12 +206,12 @@ test_cli_list() {
 
     local proj="$TEST_PROJECTS/simple-project"
 
-    run_test_output_contains "-l lists projects" "Projects:" "$DAGWOOD" -f "$proj/Dagwood" -l
-    run_test_output_contains "-l lists tasks" "Tasks:" "$DAGWOOD" -f "$proj/Dagwood" -l
-    run_test_output_contains "-l shows step_1" "step_1" "$DAGWOOD" -f "$proj/Dagwood" -l
-    run_test_output_contains "-l shows step_2" "step_2" "$DAGWOOD" -f "$proj/Dagwood" -l
-    run_test_output_contains "-l shows commands" "Commands:" "$DAGWOOD" -f "$proj/Dagwood" -l
-    run_test_output_contains "-l shows clean command" "clean" "$DAGWOOD" -f "$proj/Dagwood" -l
+    run_test_output_contains "-l lists projects" "Projects:" "$DAGWOOD" -f "$proj/Dag" -l
+    run_test_output_contains "-l lists tasks" "Tasks:" "$DAGWOOD" -f "$proj/Dag" -l
+    run_test_output_contains "-l shows step_1" "step_1" "$DAGWOOD" -f "$proj/Dag" -l
+    run_test_output_contains "-l shows step_2" "step_2" "$DAGWOOD" -f "$proj/Dag" -l
+    run_test_output_contains "-l shows commands" "Commands:" "$DAGWOOD" -f "$proj/Dag" -l
+    run_test_output_contains "-l shows clean command" "clean" "$DAGWOOD" -f "$proj/Dag" -l
 }
 
 test_cli_dot() {
@@ -219,9 +219,9 @@ test_cli_dot() {
 
     local proj="$TEST_PROJECTS/simple-project"
 
-    run_test_output_contains "-d outputs digraph" "digraph" "$DAGWOOD" -f "$proj/Dagwood" -d
-    run_test_output_contains "-d shows task nodes" "step_1" "$DAGWOOD" -f "$proj/Dagwood" -d
-    run_test_output_contains "-d shows edges" "->" "$DAGWOOD" -f "$proj/Dagwood" -d
+    run_test_output_contains "-d outputs digraph" "digraph" "$DAGWOOD" -f "$proj/Dag" -d
+    run_test_output_contains "-d shows task nodes" "step_1" "$DAGWOOD" -f "$proj/Dag" -d
+    run_test_output_contains "-d shows edges" "->" "$DAGWOOD" -f "$proj/Dag" -d
 }
 
 test_cli_dry_run() {
@@ -229,8 +229,8 @@ test_cli_dry_run() {
 
     local proj="$TEST_PROJECTS/simple-project"
 
-    run_test_output_contains "-y shows plan" "Layer" "$DAGWOOD" -f "$proj/Dagwood" -y
-    run_test_output_contains "-y shows tasks" "Task Name" "$DAGWOOD" -f "$proj/Dagwood" -y
+    run_test_output_contains "-y shows plan" "Layer" "$DAGWOOD" -f "$proj/Dag" -y
+    run_test_output_contains "-y shows tasks" "Task Name" "$DAGWOOD" -f "$proj/Dag" -y
 }
 
 # ============================================================================
