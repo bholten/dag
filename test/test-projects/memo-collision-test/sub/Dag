@@ -1,0 +1,18 @@
+;; Sub-project with a task named "build" - same local name as main project
+;; Used to test that staleness memo uses qualified names, not local names
+
+project sub_project {
+    task build {
+        description "Sub-project build"
+        outputs sub_output.txt
+        run {
+            echo "sub_project built" > sub_output.txt
+        }
+    }
+
+    command clean {
+        run {
+            rm -f sub_output.txt
+        }
+    }
+}

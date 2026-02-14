@@ -615,6 +615,155 @@ test_cycle_detection() {
 }
 
 # ============================================================================
+# Custom Shell Tests (Issue #21)
+# ============================================================================
+
+test_custom_shell() {
+    log_section "Custom Shell Configuration"
+
+    local proj="$TEST_PROJECTS/custom-shell-test"
+
+    # Run a task that uses bash-specific syntax (BASH_VERSION variable)
+    # If posix_spawn correctly uses the configured shell (/bin/bash),
+    # BASH_VERSION will be non-empty. If it falls back to /bin/sh, it will be empty.
+    local output
+    output=$("$DAGWOOD" -C "$proj" "custom_shell_test::check_shell" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -qE "SHELL_CHECK:.+"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "custom shell (/bin/bash) is actually used by posix_spawn"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "custom shell not used (BASH_VERSION empty, likely running /bin/sh)"
+    fi
+}
+
+# ============================================================================
+# Multi-Project Tests (Issue #25)
+# ============================================================================
+
+test_multi_project() {
+    log_section "Multi-Project Import"
+
+    local proj="$TEST_PROJECTS/multi-project"
+
+    # Clean up from any previous runs
+    rm -rf "$proj/build" "$proj/project_1/task_1" "$proj/project_1/task_2" \
+           "$proj/project_1/task_3" "$proj/project_2/build" "$proj/project_3/build"
+
+    # List should show all imported projects
+    run_test_output_contains "list shows imported project_1" "project_1" \
+        "$DAGWOOD" -f "$proj/Dag" -C "$proj" -l
+    run_test_output_contains "list shows imported project_2" "project_2" \
+        "$DAGWOOD" -f "$proj/Dag" -C "$proj" -l
+    run_test_output_contains "list shows imported project_3" "project_3" \
+        "$DAGWOOD" -f "$proj/Dag" -C "$proj" -l
+    run_test_output_contains "list shows main multiproject" "multiproject" \
+        "$DAGWOOD" -f "$proj/Dag" -C "$proj" -l
+
+    # Dry run should show cross-project dependencies
+    run_test_output_contains "dry run shows cross-project tasks" "project_1::task_1" \
+        "$DAGWOOD" -f "$proj/Dag" -C "$proj" -y
+
+    # Run the full multi-project build
+    run_test "full multi-project build succeeds" \
+        "$DAGWOOD" -C "$proj"
+
+    # Check that outputs from all projects were created
+    run_test "project_1 task_1 output created" test -f "$proj/task_1/build/task_1.out"
+    run_test "project_1 task_2 outputs created" test -f "$proj/task_2/build/task_2.out1"
+    run_test "project_1 task_3 output created" test -f "$proj/task_3/build/task_3.out"
+    run_test "project_2 output created" test -f "$proj/build/output.txt"
+    run_test "project_3 combined output created" test -f "$proj/build/combined.txt"
+    run_test "multiproject final output created" test -f "$proj/build/complete.txt"
+
+    # Run an individual cross-project task
+    rm -rf "$proj/build" "$proj/task_1" "$proj/task_2" "$proj/task_3"
+    run_test "individual cross-project task runs" \
+        "$DAGWOOD" -C "$proj" "project_1::task_2"
+    run_test "cross-project dependency ran (task_1)" test -f "$proj/task_1/build/task_1.out"
+    run_test "cross-project target ran (task_2)" test -f "$proj/task_2/build/task_2.out1"
+
+    # Clean up
+    rm -rf "$proj/build" "$proj/task_1" "$proj/task_2" "$proj/task_3"
+}
+
+# ============================================================================
+# Args Tests (Issue #25)
+# ============================================================================
+
+test_args() {
+    log_section "CLI Arguments (arg command)"
+
+    local proj="$TEST_PROJECTS/args-test"
+
+    # Default values should be used when no CLI args given
+    run_test_output_contains "default arg values used" "BUILD_TYPE=debug" \
+        "$DAGWOOD" -C "$proj" "args_test::show_args"
+    run_test_output_contains "default CC value used" "CC=gcc" \
+        "$DAGWOOD" -C "$proj" "args_test::show_args"
+
+    # CLI args should override defaults
+    run_test_output_contains "CLI arg overrides default" "BUILD_TYPE=release" \
+        "$DAGWOOD" -C "$proj" BUILD_TYPE=release "args_test::show_args"
+    run_test_output_contains "CLI arg overrides CC" "CC=clang" \
+        "$DAGWOOD" -C "$proj" CC=clang "args_test::show_args"
+
+    # Multiple CLI args at once
+    local output
+    output=$("$DAGWOOD" -C "$proj" BUILD_TYPE=release CC=clang "args_test::show_args" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "BUILD_TYPE=release" && echo "$output" | grep -q "CC=clang"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "multiple CLI args override correctly"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "multiple CLI args override failed"
+    fi
+}
+
+# ============================================================================
+# Staleness Memo Collision Tests (Issue #22)
+# ============================================================================
+
+test_memo_collision() {
+    log_section "Staleness Memo Key Collision"
+
+    local proj="$TEST_PROJECTS/memo-collision-test"
+
+    # Clean up
+    rm -f "$proj/main_output.txt" "$proj/sub_output.txt"
+
+    # Run the full project - both "build" tasks should execute
+    run_test "memo collision: full build succeeds" \
+        "$DAGWOOD" -C "$proj"
+
+    # Both outputs should exist (both "build" tasks ran)
+    run_test "memo collision: sub_project::build output exists" \
+        test -f "$proj/sub_output.txt"
+    run_test "memo collision: main_project::build output exists" \
+        test -f "$proj/main_output.txt"
+
+    # Now delete only main_output.txt (making main_project::build stale
+    # but sub_project::build should remain clean)
+    rm -f "$proj/main_output.txt"
+
+    # Run again - main_project::build should be stale and re-run
+    # If memo uses local name "build", sub_project::build's CLEAN state
+    # will be cached and main_project::build will incorrectly be CLEAN too
+    run_test "memo collision: rebuild after partial clean" \
+        "$DAGWOOD" -C "$proj"
+
+    run_test "memo collision: main_project::build re-created" \
+        test -f "$proj/main_output.txt"
+
+    # Clean up
+    rm -f "$proj/main_output.txt" "$proj/sub_output.txt"
+}
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -638,6 +787,10 @@ main() {
     test_chdir
     test_spawn_error
     test_cycle_detection
+    test_custom_shell
+    test_multi_project
+    test_args
+    test_memo_collision
 
     # Summary
     log_section "Summary"

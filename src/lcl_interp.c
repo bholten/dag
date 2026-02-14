@@ -121,9 +121,11 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
 
   if (rc != LCL_RC_OK || !result) {
     fprintf(stderr, "[dagwood] project '%s' initialization failed\n", name);
+
     if (result) {
       lcl_ref_dec(result);
     }
+
     g_ctx.current_project = saved_project;
     free(name);
     return LCL_RC_ERR;
@@ -144,6 +146,7 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     if (body_code) {
       lcl_ref_dec(body_code);
     }
+
     lcl_ref_dec(result);
     g_ctx.current_project = saved_project;
     free(name);
@@ -186,9 +189,11 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
   if (body_str && body_str[0]) {
     lcl_value *eval_result = NULL;
     rc = lcl_eval_string(interp, body_str, &eval_result);
+
     if (eval_result) {
       lcl_ref_dec(eval_result);
     }
+
     if (rc != LCL_RC_OK) {
       fprintf(stderr, "[dagwood] project '%s' body evaluation failed\n", name);
       lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
@@ -290,11 +295,14 @@ static char *strdup_safe(const char *s) {
   if (!s) {
     return NULL;
   }
+
   size_t len = strlen(s);
   char *dup = malloc(len + 1);
+
   if (dup) {
     memcpy(dup, s, len + 1);
   }
+
   return dup;
 }
 
@@ -302,12 +310,14 @@ static char *make_qualified_name(const char *project, const char *name) {
   size_t plen = strlen(project);
   size_t nlen = strlen(name);
   char *qname = malloc(plen + 2 + nlen + 1);
+
   if (qname) {
     memcpy(qname, project, plen);
     qname[plen] = ':';
     qname[plen + 1] = ':';
     memcpy(qname + plen + 2, name, nlen + 1);
   }
+
   return qname;
 }
 
@@ -449,6 +459,7 @@ static int c_glob(lcl_interp *interp, int argc, lcl_value **argv,
 
   for (int i = 0; i < argc; i++) {
     const char *pattern = lcl_value_to_string(argv[i]);
+
     if (!pattern) {
       continue;
     }
@@ -460,6 +471,7 @@ static int c_glob(lcl_interp *interp, int argc, lcl_value **argv,
 
       if (dir) {
         struct dirent *entry;
+
         while ((entry = readdir(dir)) != NULL) {
           if (entry->d_name[0] == '.') {
             continue;
@@ -678,18 +690,24 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
 
   if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
     lcl_value *val = lcl_string_new(final_value);
+
     if (!val) {
       lcl_ref_dec(proj_ns);
+
       if (cli_val) {
         lcl_ref_dec(cli_val);
       }
+
       return LCL_RC_ERR;
     }
+
     lcl_ns_def(proj_ns, name, val);
     lcl_ref_dec(proj_ns);
+
     if (cli_val) {
       lcl_ref_dec(cli_val);
     }
+
     *out = lcl_string_new(final_value);
     return *out ? LCL_RC_OK : LCL_RC_ERR;
   }
@@ -700,15 +718,18 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
     if (cli_val) {
       lcl_ref_dec(cli_val);
     }
+
     return LCL_RC_ERR;
   }
 
   lcl_value *val = lcl_string_new(final_value);
   if (!val) {
     free(qname);
+
     if (cli_val) {
       lcl_ref_dec(cli_val);
     }
+
     return LCL_RC_ERR;
   }
 
@@ -730,9 +751,11 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
 
 static char *extract_dict_string(lcl_value *dict, const char *key) {
   lcl_value *val = NULL;
+
   if (lcl_dict_get(dict, key, &val) != LCL_OK || !val) {
     return NULL;
   }
+
   const char *str = lcl_value_to_string(val);
   char *result = str ? strdup_safe(str) : NULL;
   lcl_ref_dec(val);
@@ -741,9 +764,11 @@ static char *extract_dict_string(lcl_value *dict, const char *key) {
 
 static bool extract_dict_bool(lcl_value *dict, const char *key) {
   lcl_value *val = NULL;
+
   if (lcl_dict_get(dict, key, &val) != LCL_OK || !val) {
     return false;
   }
+
   const char *str = lcl_value_to_string(val);
   bool result = str && (strcmp(str, "true") == 0 || strcmp(str, "1") == 0);
   lcl_ref_dec(val);
@@ -1086,7 +1111,8 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
           if (lcl_dict_get(tasks_dict, task_name, &task_dict) == LCL_OK &&
               task_dict) {
             dagwood_task *task =
-                extract_task(project_name, task_name, task_dict, project);
+              extract_task(project_name, task_name, task_dict, project);
+
             if (task) {
               t_map_set(task_registry, task->id, task);
             }
@@ -1274,6 +1300,7 @@ void interpreter_delete(interpreter *interp) {
 
   t_map *c = interp->command_registry;
   t_map *t = interp->task_registry;
+
   for (size_t j = t_map_begin(c); j < t_map_end(c); j++) {
     dagwood_task *task = t_map_value(c, j);
 
@@ -1303,6 +1330,7 @@ void interpreter_delete(interpreter *interp) {
   g_ctx.interp = NULL;
   g_ctx.current_project = NULL;
   g_ctx.project = NULL;
+  g_ctx.dsl_loaded = false;
 }
 
 const char *interpreter_get_error(interpreter *interp) {

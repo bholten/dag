@@ -136,28 +136,28 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
     return true;
   }
 
-  task_state memo_value = ts_map_get(g->memo, task->name);
+  task_state memo_value = ts_map_get(g->memo, task->id);
 
   if (memo_value == TASK_CLEAN) {
-    printf("[dagwood] [%s] cache hit -> task not stale\n", task->name);
+    printf("[dagwood] [%s] cache hit -> task not stale\n", task->id);
     return false;
   }
 
   if (memo_value == TASK_STALE) {
-    printf("[dagwood] [%s] cache hit -> task stale\n", task->name);
+    printf("[dagwood] [%s] cache hit -> task stale\n", task->id);
     return true;
   }
 
   if (task->always_run) {
-    ts_map_set(g->memo, task->name, TASK_STALE);
-    printf("[dagwood] [%s] stale - always_run = true\n", task->name);
+    ts_map_set(g->memo, task->id, TASK_STALE);
+    printf("[dagwood] [%s] stale - always_run = true\n", task->id);
     return true;
   }
 
   if (s_arr_len(task->outputs) == 0) {
     if (s_arr_len(task->depends_on) == 0) {
       printf("[dagwood] [%s] stale - no outputs (side-effect task)\n",
-             task->name);
+             task->id);
       return true;
     }
 
@@ -168,21 +168,22 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
       }
 
       dagwood_task *dep = t_map_get(g->task_by_name, dep_name);
+
       if (!dep) {
         continue;
       }
 
       if (task_stale(g, dep)) {
-        ts_map_set(g->memo, task->name, TASK_STALE);
-        printf("[dagwood] [%s] stale - depends_on task %s stale\n", task->name,
-               dep->name);
+        ts_map_set(g->memo, task->id, TASK_STALE);
+        printf("[dagwood] [%s] stale - depends_on task %s stale\n", task->id,
+               dep->id);
         return true;
       }
     }
-    /* All dependencies are clean, but we still have no outputs to track */
-    ts_map_set(g->memo, task->name, TASK_STALE);
+
+    ts_map_set(g->memo, task->id, TASK_STALE);
     printf("[dagwood] [%s] stale - no outputs (side-effect task)\n",
-           task->name);
+           task->id);
     return true;
   }
 
@@ -193,16 +194,16 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
       struct stat file_out_info;
 
       if (stat(file_out, &file_out_info) != 0) {
-        ts_map_set(g->memo, task->name, TASK_STALE);
-        printf("[dagwood] [%s] stale - output missing: %s\n", task->name,
+        ts_map_set(g->memo, task->id, TASK_STALE);
+        printf("[dagwood] [%s] stale - output missing: %s\n", task->id,
                file_out);
         return true;
       }
     }
-    /* All outputs exist, task is clean */
-    ts_map_set(g->memo, task->name, TASK_CLEAN);
+
+    ts_map_set(g->memo, task->id, TASK_CLEAN);
     printf("[dagwood] [%s] clean - outputs exist, no inputs to compare\n",
-           task->name);
+           task->id);
     return false;
   }
 
@@ -221,27 +222,27 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
           time_t m_out = file_out_info.st_mtime;
 
           if (m_in > m_out) {
-            ts_map_set(g->memo, task->name, TASK_STALE);
-            printf("[dagwood] [%s] stale - mtime calc: %s > %s\n", task->name,
+            ts_map_set(g->memo, task->id, TASK_STALE);
+            printf("[dagwood] [%s] stale - mtime calc: %s > %s\n", task->id,
                    file_in, file_out);
             return true;
           }
         } else {
-          ts_map_set(g->memo, task->name, TASK_STALE);
-          printf("[dagwood] [%s] stale - output file missing: %s\n", task->name,
+          ts_map_set(g->memo, task->id, TASK_STALE);
+          printf("[dagwood] [%s] stale - output file missing: %s\n", task->id,
                  file_out);
           return true;
         }
       }
     } else {
-      ts_map_set(g->memo, task->name, TASK_STALE);
-      printf("[dagwood] [%s] stale - input file missing: %s\n", task->name,
+      ts_map_set(g->memo, task->id, TASK_STALE);
+      printf("[dagwood] [%s] stale - input file missing: %s\n", task->id,
              file_in);
       return true;
     }
   }
 
-  ts_map_set(g->memo, task->name, TASK_CLEAN);
+  ts_map_set(g->memo, task->id, TASK_CLEAN);
 
   return false;
 }
@@ -268,15 +269,15 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     dagwood_task *t = t_arr_get(layer, i);
 
     if (!task_stale(g, t)) {
-      fprintf(stdout, "[dagwood] [%s] task not stale\n", t->name);
+      fprintf(stdout, "[dagwood] [%s] task not stale\n", t->id);
       pids[i] = -1;
       continue;
     }
 
-    fprintf(stdout, "[dagwood] [%s] spawning task number %zu\n", t->name, i);
+    fprintf(stdout, "[dagwood] [%s] spawning task number %zu\n", t->id, i);
 
     if (!t->shell || !t->shell_arg) {
-      fprintf(stderr, "[dagwood] [%s] missing shell or shell_arg\n", t->name);
+      fprintf(stderr, "[dagwood] [%s] missing shell or shell_arg\n", t->id);
       pids[i] = -1;
       continue;
     }
@@ -293,30 +294,32 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, STDERR_FILENO);
 
     if (t->wd != NULL) {
-      printf("[dagwood] [%s] working directory: %s\n", t->name, t->wd);
+      printf("[dagwood] [%s] working directory: %s\n", t->id, t->wd);
       posix_spawn_file_actions_addchdir_np(&actions, t->wd);
     }
 
     char *argv[] = {(char *)t->shell, (char *)t->shell_arg, (char *)t->run,
                     NULL};
 
-    int spawn_status = posix_spawn(&pid, dagwood_platform_shell(), &actions,
-                                   &attr, argv, environ);
+    int spawn_status =
+        posix_spawn(&pid, t->shell, &actions, &attr, argv, environ);
 
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);
 
     if (spawn_status == 0) {
-      printf("[dagwood] [%s] spawned\n", t->name);
+      printf("[dagwood] [%s] spawned\n", t->id);
       pids[i] = pid;
     } else {
-      fprintf(stderr, "[dagwood] [%s] spawn failed\n", t->name);
+      fprintf(stderr, "[dagwood] [%s] spawn failed\n", t->id);
+
       /* Kill already-spawned processes in this layer */
       for (size_t k = 0; k < i; k++) {
         if (pids[k] > 0) {
           kill(-pids[k], SIGTERM);
         }
       }
+
       spawn_ok = false;
       break;
     }

@@ -1,0 +1,19 @@
+;; Custom shell test - verifies that the configured shell is actually used
+;; Uses bash-specific syntax to detect if we're running under bash vs sh
+
+project custom_shell_test {
+    config {
+        shell /bin/bash
+        shell_arg -c
+    }
+
+    ;; This task uses bash-specific syntax (BASH_VERSION variable)
+    ;; If posix_spawn ignores the custom shell and uses /bin/sh,
+    ;; $BASH_VERSION will be empty
+    task check_shell {
+        description "Verify bash is the actual shell"
+        run {
+            echo "SHELL_CHECK:${BASH_VERSION}"
+        }
+    }
+}

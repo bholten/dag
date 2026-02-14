@@ -1,0 +1,25 @@
+;; Memo collision test - two projects with tasks sharing the same local name "build"
+;; If the staleness memo uses task->name instead of task->id, the second "build"
+;; task will incorrectly get the first one's cached staleness result.
+
+import sub/Dag
+
+project main_project {
+    ;; This task is also called "build" - same local name as sub_project::build
+    ;; It depends on sub_project::build, so sub runs first.
+    ;; Both tasks have outputs, so staleness is determined by whether outputs exist.
+    task build {
+        description "Main project build"
+        depends_on sub_project::build
+        outputs main_output.txt
+        run {
+            echo "main_project built" > main_output.txt
+        }
+    }
+
+    command clean {
+        run {
+            rm -f main_output.txt sub_output.txt
+        }
+    }
+}
