@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+
+#include <spawn.h>
 #include <stdio.h>
 
 #include "dagwood.h"
@@ -16,4 +19,17 @@ inline const char *dagwood_platform_shell(void) {
 
 inline const char *dagwood_platform_shell_arg(void) {
   return DEFAULT_SHELL_ARG;
+}
+
+int dagwood_spawn_addchdir(posix_spawn_file_actions_t *actions,
+                           const char *path) {
+#ifdef HAVE_SPAWN_ADDCHDIR_NP
+  return posix_spawn_file_actions_addchdir_np(actions, path);
+#else
+  (void)actions;
+  (void)path;
+  fprintf(stderr,
+          "[dagwood] working directory not supported on this platform\n");
+  return -1;
+#endif
 }

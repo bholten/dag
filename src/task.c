@@ -51,6 +51,9 @@ void dagwood_task_delete(dagwood_task *task) {
   free((void *)task->name);
   free((void *)task->description);
   free((void *)task->run);
+  free((void *)task->shell);
+  free((void *)task->shell_arg);
+  free((void *)task->wd);
 
   s_arr_delete_contents(task->depends_on);
   s_arr_delete_contents(task->inputs);

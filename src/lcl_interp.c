@@ -994,9 +994,9 @@ static dagwood_task *extract_task(const char *project_name,
   }
 
   task->always_run = extract_dict_bool(task_dict, "always_run");
-  task->shell = project->shell;
-  task->shell_arg = project->shell_arg;
-  task->wd = project->cwd;
+  task->shell = project->shell ? strdup(project->shell) : NULL;
+  task->shell_arg = project->shell_arg ? strdup(project->shell_arg) : NULL;
+  task->wd = project->cwd ? strdup(project->cwd) : NULL;
 
   lcl_value *inputs_val = NULL;
 

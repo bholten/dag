@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "str_map.h"
+
 typedef struct s_arr s_arr;
 
 s_arr *s_arr_new();
@@ -37,17 +39,7 @@ t_arr *t_layers_pop(t_layers *layers);
 bool dag_build(t_arr *arr, t_layers *out);
 bool dag_build_from_task(const dagwood_task *task, t_layers *out);
 
-typedef struct t_map_entity t_map_entry;
-typedef struct t_map t_map;
-
-t_map *t_map_new(void);
-void t_map_delete(t_map *table);
-dagwood_task *t_map_get(t_map *table, const char *name);
-bool t_map_set(t_map *table, const char *name, const dagwood_task *task);
-bool t_map_exists(t_map *table, const char *name);
-size_t t_map_begin(t_map *p);
-size_t t_map_end(t_map *p);
-dagwood_task *t_map_value(t_map *p, size_t index);
+STR_MAP_DECL(t_map, dagwood_task *)
 
 typedef enum task_state {
   TASK_UNKNOWN = 0,
@@ -55,22 +47,9 @@ typedef enum task_state {
   TASK_STALE = 2
 } task_state;
 
-typedef struct ts_map ts_map;
-
-ts_map *ts_map_new(void);
-void ts_map_delete(ts_map *ts);
-task_state ts_map_get(ts_map *ts, const char *name);
-bool ts_map_set(ts_map *ts, const char *name, const task_state state);
+STR_MAP_DECL(ts_map, task_state)
 
 typedef struct dagwood_project dagwood_project;
-typedef struct p_map p_map;
-
-p_map *p_map_new(void);
-void p_map_delete(p_map *p);
-dagwood_project *p_map_get(p_map *p, const char *name);
-bool p_map_set(p_map *p, const char *name, const dagwood_project *project);
-size_t p_map_begin(p_map *p);
-size_t p_map_end(p_map *p);
-dagwood_project *p_map_value(p_map *p, size_t index);
+STR_MAP_DECL(p_map, dagwood_project *)
 
 #endif

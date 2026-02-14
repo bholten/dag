@@ -29,6 +29,13 @@ if(DAGWOOD_ENABLE_ASAN)
   set(DAGWOOD_LINK_OPTIONS -fsanitize=address,undefined)
 endif()
 
+include(CheckSymbolExists)
+list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+check_symbol_exists(posix_spawn_file_actions_addchdir_np spawn.h HAVE_SPAWN_ADDCHDIR_NP)
+if(HAVE_SPAWN_ADDCHDIR_NP)
+  list(APPEND DAGWOOD_COMPILE_OPTIONS -DHAVE_SPAWN_ADDCHDIR_NP)
+endif()
+
 set(DSL_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/lib/dagwood.lcl)
 set(DSL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/dagwood_dsl.h)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)

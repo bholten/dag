@@ -1,6 +1,7 @@
 #ifndef DAGWOOD_H
 #define DAGWOOD_H
 
+#include <spawn.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <sys/types.h>
@@ -72,5 +73,7 @@ bool dagwood_graph_to_dot(dagwood_graph *g);
 
 const char *dagwood_platform_shell(void);
 const char *dagwood_platform_shell_arg(void);
+int dagwood_spawn_addchdir(posix_spawn_file_actions_t *actions,
+                           const char *path);
 
 #endif

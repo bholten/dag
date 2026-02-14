@@ -299,7 +299,7 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
 
     if (t->wd != NULL) {
       printf("[dagwood] [%s] working directory: %s\n", t->id, t->wd);
-      posix_spawn_file_actions_addchdir_np(&actions, t->wd);
+      dagwood_spawn_addchdir(&actions, t->wd);
     }
 
     char *argv[] = {(char *)t->shell, (char *)t->shell_arg, (char *)t->run,

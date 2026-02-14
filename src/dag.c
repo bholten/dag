@@ -1,8 +1,12 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "dagwood.h"
 #include "data.h"
+
+STR_MAP_IMPL(idx_map, size_t, SIZE_MAX, "index")
 
 static bool dag_validate_scoped(t_arr *arr, size_t *scoped_in_degree) {
   for (size_t e = 0; e < t_arr_len(arr); e++) {
@@ -33,11 +37,21 @@ bool dag_build(t_arr *arr, t_layers *out) {
     local_in_degree[i] = task->in_degree;
   }
 
+  idx_map *index_of = idx_map_new();
+
+  if (!index_of) {
+    free(local_in_degree);
+    return false;
+  }
+
   t_arr *queue = t_arr_new();
 
   for (size_t i = 0; i < n; i++) {
+    dagwood_task *task = t_arr_get(arr, i);
+    idx_map_set(index_of, task->id, i);
+
     if (local_in_degree[i] == 0) {
-      t_arr_push(queue, t_arr_get(arr, i));
+      t_arr_push(queue, task);
     }
   }
 
@@ -54,16 +68,13 @@ bool dag_build(t_arr *arr, t_layers *out) {
 
       for (size_t j = 0; j < t_arr_len(task->reverse_edges); j++) {
         dagwood_task *dependent = t_arr_get(task->reverse_edges, j);
+        size_t k = idx_map_get(index_of, dependent->id);
 
-        for (size_t k = 0; k < n; k++) {
-          if (t_arr_get(arr, k) == dependent) {
-            local_in_degree[k]--;
+        if (k != SIZE_MAX) {
+          local_in_degree[k]--;
 
-            if (local_in_degree[k] == 0) {
-              t_arr_push(next_queue, dependent);
-            }
-
-            break;
+          if (local_in_degree[k] == 0) {
+            t_arr_push(next_queue, dependent);
           }
         }
       }
@@ -75,6 +86,7 @@ bool dag_build(t_arr *arr, t_layers *out) {
   }
 
   t_arr_delete(queue);
+  idx_map_delete(index_of);
 
   if (processed < n) {
     for (size_t i = 0; i < n; i++) {
@@ -149,11 +161,23 @@ bool dag_build_from_task(const dagwood_task *task, t_layers *out) {
     }
   }
 
+  idx_map *index_of = idx_map_new();
+
+  if (!index_of) {
+    free(scoped_in_degree);
+    t_map_delete(scope);
+    t_arr_delete(targets);
+    return false;
+  }
+
   t_arr *queue = t_arr_new();
 
   for (size_t i = 0; i < n; i++) {
+    dagwood_task *t = t_arr_get(targets, i);
+    idx_map_set(index_of, t->id, i);
+
     if (scoped_in_degree[i] == 0) {
-      t_arr_push(queue, t_arr_get(targets, i));
+      t_arr_push(queue, t);
     }
   }
 
@@ -167,19 +191,16 @@ bool dag_build_from_task(const dagwood_task *task, t_layers *out) {
 
       for (size_t j = 0; j < t_arr_len(t->reverse_edges); j++) {
         dagwood_task *dependent = t_arr_get(t->reverse_edges, j);
+        size_t k = idx_map_get(index_of, dependent->id);
 
-        if (!t_map_exists(scope, dependent->id)) {
+        if (k == SIZE_MAX) {
           continue;
         }
 
-        for (size_t k = 0; k < n; k++) {
-          if (t_arr_get(targets, k) == dependent) {
-            scoped_in_degree[k]--;
-            if (scoped_in_degree[k] == 0) {
-              t_arr_push(next_queue, dependent);
-            }
-            break;
-          }
+        scoped_in_degree[k]--;
+
+        if (scoped_in_degree[k] == 0) {
+          t_arr_push(next_queue, dependent);
         }
       }
     }
@@ -192,6 +213,7 @@ bool dag_build_from_task(const dagwood_task *task, t_layers *out) {
   bool valid = dag_validate_scoped(targets, scoped_in_degree);
 
   t_arr_delete(queue);
+  idx_map_delete(index_of);
   free(scoped_in_degree);
   t_map_delete(scope);
   t_arr_delete(targets);
