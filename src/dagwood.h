@@ -67,8 +67,8 @@ void dagwood_graph_delete(dagwood_graph *g);
 bool dagwood_graph_execute(dagwood_graph *g);
 bool dagwood_graph_execute_task(dagwood_graph *g, const char *task_name);
 
-void dagwood_graph_dry_run(dagwood_graph *g);
-void dagwood_graph_to_dot(dagwood_graph *g);
+bool dagwood_graph_dry_run(dagwood_graph *g);
+bool dagwood_graph_to_dot(dagwood_graph *g);
 
 const char *dagwood_platform_shell(void);
 const char *dagwood_platform_shell_arg(void);

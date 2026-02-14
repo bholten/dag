@@ -101,7 +101,7 @@ void dagwood_graph_delete(dagwood_graph *g) {
   free(g);
 }
 
-static void build_graph(dagwood_graph *g) {
+static bool build_graph(dagwood_graph *g) {
   for (size_t i = 0; i < t_arr_len(g->tasks); i++) {
     dagwood_task *t = t_arr_get(g->tasks, i);
 
@@ -110,7 +110,10 @@ static void build_graph(dagwood_graph *g) {
       dagwood_task *dep = t_map_get(g->task_by_name, dep_name);
 
       if (!dep) {
-        continue;
+        fprintf(stderr,
+                "[dagwood] task '%s' depends on '%s', which does not exist\n",
+                t->id, dep_name);
+        return false;
       }
 
       dagwood_task_add_edge(t, dep);
@@ -129,6 +132,7 @@ static void build_graph(dagwood_graph *g) {
   }
 
   g->graph_built = true;
+  return true;
 }
 
 static bool task_stale(dagwood_graph *g, dagwood_task *task) {
@@ -364,7 +368,9 @@ bool dagwood_graph_execute_task(dagwood_graph *g, const char *task_name) {
   }
 
   if (!g->graph_built) {
-    build_graph(g);
+    if (!build_graph(g)) {
+      return false;
+    }
   }
 
   t_layers *layers = t_layers_new();
@@ -393,7 +399,9 @@ bool dagwood_graph_execute_task(dagwood_graph *g, const char *task_name) {
 
 bool dagwood_graph_execute(dagwood_graph *g) {
   if (!g->graph_built) {
-    build_graph(g);
+    if (!build_graph(g)) {
+      return false;
+    }
   }
 
   t_layers *layers = t_layers_new();
@@ -420,9 +428,11 @@ bool dagwood_graph_execute(dagwood_graph *g) {
   return success;
 }
 
-void dagwood_graph_dry_run(dagwood_graph *g) {
+bool dagwood_graph_dry_run(dagwood_graph *g) {
   if (!g->graph_built) {
-    build_graph(g);
+    if (!build_graph(g)) {
+      return false;
+    }
   }
 
   t_layers *layers = t_layers_new();
@@ -475,11 +485,14 @@ void dagwood_graph_dry_run(dagwood_graph *g) {
   }
 
   t_layers_delete(layers);
+  return true;
 }
 
-void dagwood_graph_to_dot(dagwood_graph *g) {
+bool dagwood_graph_to_dot(dagwood_graph *g) {
   if (!g->graph_built) {
-    build_graph(g);
+    if (!build_graph(g)) {
+      return false;
+    }
   }
 
   printf("digraph \"dagwood\" {\n");
@@ -523,4 +536,5 @@ void dagwood_graph_to_dot(dagwood_graph *g) {
   printf("}\n");
 
   t_layers_delete(layers);
+  return true;
 }

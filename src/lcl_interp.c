@@ -843,32 +843,43 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
             replacement = lcl_value_to_string(result);
           }
 
-          if (replacement) {
-            size_t repl_len = strlen(replacement);
+          if (!replacement) {
+            char var_name[256];
+            size_t copy_len = var_len < sizeof(var_name) - 1
+                                  ? var_len
+                                  : sizeof(var_name) - 1;
+            memcpy(var_name, var_start, copy_len);
+            var_name[copy_len] = '\0';
+            fprintf(stderr,
+                    "[dagwood] undefined namespace variable: $%s\n",
+                    var_name);
 
-            while (out_len + repl_len + 1 > out_capacity) {
-              out_capacity *= 2;
-              char *new_out = realloc(out, out_capacity);
-
-              if (!new_out) {
-                if (result) {
-                  lcl_ref_dec(result);
-                }
-
-                free(out);
-                return strdup_safe(script);
-              }
-
-              out = new_out;
+            if (result) {
+              lcl_ref_dec(result);
             }
 
-            memcpy(out + out_len, replacement, repl_len);
-            out_len += repl_len;
+            free(out);
+            return NULL;
           }
 
-          if (result) {
-            lcl_ref_dec(result);
+          size_t repl_len = strlen(replacement);
+
+          while (out_len + repl_len + 1 > out_capacity) {
+            out_capacity *= 2;
+            char *new_out = realloc(out, out_capacity);
+
+            if (!new_out) {
+              lcl_ref_dec(result);
+              free(out);
+              return strdup_safe(script);
+            }
+
+            out = new_out;
           }
+
+          memcpy(out + out_len, replacement, repl_len);
+          out_len += repl_len;
+          lcl_ref_dec(result);
 
           p = braced ? (var_end + 1) : var_end;
           continue;
@@ -895,7 +906,9 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
   return out;
 }
 
-static char *extract_run_script(lcl_interp *interp, lcl_value *dict) {
+static char *extract_run_script(lcl_interp *interp, lcl_value *dict,
+                                bool *error) {
+  *error = false;
   char *raw = extract_dict_string(dict, "run");
 
   if (!raw) {
@@ -904,6 +917,11 @@ static char *extract_run_script(lcl_interp *interp, lcl_value *dict) {
 
   char *substituted = substitute_namespace_vars(interp, raw);
   free(raw);
+
+  if (!substituted) {
+    *error = true;
+  }
+
   return substituted;
 }
 
@@ -960,7 +978,15 @@ static dagwood_task *extract_task(const char *project_name,
   task->id = make_qualified_name(project_name, task_name);
   free((void *)task->description);
   task->description = extract_dict_string(task_dict, "description");
-  char *run_script = extract_run_script(g_ctx.interp, task_dict);
+  bool run_error = false;
+  char *run_script = extract_run_script(g_ctx.interp, task_dict, &run_error);
+
+  if (run_error) {
+    fprintf(stderr, "[dagwood] failed to resolve variables in task '%s::%s'\n",
+            project_name, task_name);
+    dagwood_task_delete(task);
+    return NULL;
+  }
 
   if (run_script) {
     free((void *)task->run);
@@ -1113,10 +1139,17 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
             dagwood_task *task =
               extract_task(project_name, task_name, task_dict, project);
 
-            if (task) {
-              t_map_set(task_registry, task->id, task);
+            if (!task) {
+              lcl_ref_dec(task_dict);
+              lcl_ref_dec(key_val);
+              lcl_ref_dec(keys_result);
+              lcl_ref_dec(tasks_dict);
+              lcl_ref_dec(project_name_val);
+              lcl_ref_dec(projects_list);
+              return false;
             }
 
+            t_map_set(task_registry, task->id, task);
             lcl_ref_dec(task_dict);
           }
 
@@ -1161,10 +1194,17 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
             dagwood_task *cmd =
                 extract_task(project_name, cmd_name, cmd_dict, project);
 
-            if (cmd) {
-              t_map_set(command_registry, cmd->id, cmd);
+            if (!cmd) {
+              lcl_ref_dec(cmd_dict);
+              lcl_ref_dec(key_val);
+              lcl_ref_dec(keys_result);
+              lcl_ref_dec(commands_dict);
+              lcl_ref_dec(project_name_val);
+              lcl_ref_dec(projects_list);
+              return false;
             }
 
+            t_map_set(command_registry, cmd->id, cmd);
             lcl_ref_dec(cmd_dict);
           }
 

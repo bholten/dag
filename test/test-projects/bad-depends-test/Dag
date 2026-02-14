@@ -1,0 +1,18 @@
+;; Test that depends_on referencing a non-existent task causes a hard failure
+
+project bad_depends_test {
+    task step_1 {
+        description "A valid task"
+        run {
+            echo "step_1"
+        }
+    }
+
+    task step_2 {
+        description "Depends on a task that does not exist"
+        depends_on bad_depends_test::step_1_typo
+        run {
+            echo "step_2"
+        }
+    }
+}

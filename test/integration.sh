@@ -478,18 +478,9 @@ test_namespaces() {
         log_fail "shell special variables not preserved"
     fi
 
-    # --- Test 8: Undefined variable replaced with empty ---
-    # (Current behavior: undefined variables are replaced with empty strings)
-    output=$("$DAGWOOD" -C "$proj" "ns_test::undefined_var" 2>&1)
-
-    TESTS_RUN=$((TESTS_RUN + 1))
-    if echo "$output" | grep -q 'Undefined:'; then
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        log_pass "undefined variable handled (replaced with empty)"
-    else
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        log_fail "undefined variable test failed"
-    fi
+    # Test 8: Undefined variable handling - REMOVED
+    # Undefined namespace vars are now a hard failure (Issue #26).
+    # See test_undefined_var() for the hard-failure test.
 
     # --- Test 9: Task attribute reference - another task's run script ---
     output=$("$DAGWOOD" -C "$proj" "ns_test::reference_other_run" 2>&1)
@@ -612,6 +603,106 @@ test_cycle_detection() {
 
     # Should mention cycle in error output
     run_test_output_contains_any_exit "cycle error reported" "cycle" "$DAGWOOD" -C "$proj"
+}
+
+# ============================================================================
+# Undefined Namespace Variable Tests (Issue #26)
+# ============================================================================
+
+test_undefined_var() {
+    log_section "Undefined Namespace Variable (hard failure)"
+
+    local proj="$TEST_PROJECTS/undefined-var-test"
+
+    # A misspelled namespace variable should cause a hard failure
+    run_test_fails "undefined namespace var fails" "$DAGWOOD" -C "$proj"
+
+    # Error message should mention the undefined variable
+    run_test_output_contains_any_exit "error mentions undefined variable" \
+        "undefined namespace variable" "$DAGWOOD" -C "$proj"
+
+    # Error message should include the variable name
+    run_test_output_contains_any_exit "error shows variable name" \
+        "BUILD_DIER" "$DAGWOOD" -C "$proj"
+}
+
+# ============================================================================
+# Bad depends_on Tests (Issue #27)
+# ============================================================================
+
+test_bad_depends_on() {
+    log_section "Unresolvable depends_on (hard failure)"
+
+    local proj="$TEST_PROJECTS/bad-depends-test"
+
+    # A depends_on referencing a non-existent task should cause a hard failure
+    run_test_fails "unresolvable depends_on fails" "$DAGWOOD" -C "$proj"
+
+    # Error message should mention the missing dependency
+    run_test_output_contains_any_exit "error mentions missing dependency" \
+        "does not exist" "$DAGWOOD" -C "$proj"
+
+    # Error message should include the bad task name
+    run_test_output_contains_any_exit "error shows missing task name" \
+        "step_1_typo" "$DAGWOOD" -C "$proj"
+}
+
+# ============================================================================
+# Run Subcommand Tests (Issue #24)
+# ============================================================================
+
+test_run_subcommand() {
+    log_section "Run Subcommand"
+
+    local proj="$TEST_PROJECTS/simple-project"
+
+    # Clean up
+    rm -rf "$proj/s1" "$proj/s2"
+
+    # "dag run <task>" should work the same as "dag <task>"
+    run_test "run subcommand executes task" \
+        "$DAGWOOD" -C "$proj" run "simple_project::step_1"
+    run_test "run subcommand created outputs" test -f "$proj/s1/build/1.out"
+
+    # Clean up and test with --force flag
+    rm -rf "$proj/s1" "$proj/s2"
+
+    # Run step_1 to create outputs, then run again with --force to rebuild
+    "$DAGWOOD" -C "$proj" run "simple_project::step_1" >/dev/null 2>&1
+    local mtime_before
+    mtime_before=$(stat -c %Y "$proj/s1/build/1.out" 2>/dev/null || stat -f %m "$proj/s1/build/1.out")
+
+    sleep 1
+    "$DAGWOOD" -C "$proj" --force run "simple_project::step_1" >/dev/null 2>&1
+    local mtime_after
+    mtime_after=$(stat -c %Y "$proj/s1/build/1.out" 2>/dev/null || stat -f %m "$proj/s1/build/1.out")
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ "$mtime_before" != "$mtime_after" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "--force rebuilds even when outputs exist"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "--force did not rebuild"
+    fi
+
+    # Also test --force with direct task (not via run subcommand)
+    mtime_before=$(stat -c %Y "$proj/s1/build/1.out" 2>/dev/null || stat -f %m "$proj/s1/build/1.out")
+    sleep 1
+    "$DAGWOOD" -C "$proj" --force "simple_project::step_1" >/dev/null 2>&1
+    mtime_after=$(stat -c %Y "$proj/s1/build/1.out" 2>/dev/null || stat -f %m "$proj/s1/build/1.out")
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ "$mtime_before" != "$mtime_after" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "--force works with direct task invocation"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "--force did not work with direct task invocation"
+    fi
+
+    # Clean up
+    rm -rf "$proj/s1" "$proj/s2"
 }
 
 # ============================================================================
@@ -787,6 +878,9 @@ main() {
     test_chdir
     test_spawn_error
     test_cycle_detection
+    test_undefined_var
+    test_bad_depends_on
+    test_run_subcommand
     test_custom_shell
     test_multi_project
     test_args

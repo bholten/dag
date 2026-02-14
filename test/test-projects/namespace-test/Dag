@@ -106,17 +106,9 @@ project ns_test {
         }
     }
 
-    ;; ============================================================================
     ;; Test 8: Undefined variable handling
-    ;; Note: Using single quotes so bash doesn't substitute
-    ;; ============================================================================
-    task undefined_var {
-        description "Test undefined variable handling"
-        run {
-            echo 'Undefined: $undefined::variable'
-            echo 'Partial: $ns_test::nonexistent'
-        }
-    }
+    ;; REMOVED: Undefined namespace vars are now a hard failure (Issue #26).
+    ;; See test/test-projects/undefined-var-test/ for the hard-failure test.
 
     ;; ============================================================================
     ;; Test 9: Task attribute reference - referencing another task's run script

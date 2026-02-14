@@ -5,7 +5,7 @@
  *   dag                      Run whole project (default: ./Dagwood)
  *   dag <task>               Run a specific task
  *   dag KEY=value <task>     Run task with build arguments
- *   dag run <task>           Run task with additional options
+ *   dag run <task>           Run a specific task (alias for dag <task>)
  *   dag -l                   List all tasks
  *   dag -d                   Print DAG as Graphviz dot
  *   dag -y                   Dry run (show what would execute)
@@ -25,7 +25,6 @@
 
 #define DAGWOOD_VERSION "0.1.0"
 #define DEFAULT_FILE "Dag"
-#define MAIN_NS_PREFIX "::___dagwood::main::"
 
 typedef struct {
   char *name;
@@ -69,6 +68,7 @@ static void show_help(void) {
   puts("  -l, --list             List all tasks");
   puts("  -d, --dot              Print DAG as Graphviz dot format");
   puts("  -y, --dry-run          Show execution order without running");
+  puts("  -F, --force            Force rebuild (skip staleness checks)");
   puts("  -r, --repl             Start interactive REPL");
   puts("  -h, --help             Show this help message");
   puts("  -v, --version          Print version");
@@ -193,9 +193,9 @@ static int cmd_dot(const char *file) {
     return EXIT_FAILURE;
   }
 
-  dagwood_graph_to_dot(g_graph);
+  bool ok = dagwood_graph_to_dot(g_graph);
   env_delete(env);
-  return EXIT_SUCCESS;
+  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 static int cmd_dry_run(const char *file) {
@@ -209,9 +209,9 @@ static int cmd_dry_run(const char *file) {
     return EXIT_FAILURE;
   }
 
-  dagwood_graph_dry_run(g_graph);
+  bool ok = dagwood_graph_dry_run(g_graph);
   env_delete(env);
-  return EXIT_SUCCESS;
+  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 static int cmd_repl(void) {
@@ -263,44 +263,15 @@ static int cmd_run_task(const char *file, const char *name, int force) {
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-static int cmd_run_subcommand(const char *file, int argc, char **argv) {
-  static struct option opts[] = {
-      {"force", no_argument, NULL, 'f'},
-      {0,       0,           0,    0  }
-  };
-
-  int force = 0;
-  int opt;
-
-  optind = 1;
-
-  while ((opt = getopt_long(argc, argv, "f", opts, NULL)) != -1) {
-    if (opt == 'f') {
-      force = 1;
-    } else {
-      return EXIT_FAILURE;
-    }
-  }
-
-  if (optind >= argc) {
+static int cmd_run_subcommand(const char *file, int force, int argc,
+                              char **argv) {
+  /* argv[0] is "run", argv[1] should be the task name */
+  if (argc < 2) {
     fprintf(stderr, "[dagwood] run: missing task name\n");
     return EXIT_FAILURE;
   }
 
-  const char *task = argv[optind];
-
-  size_t qlen = strlen(MAIN_NS_PREFIX) + strlen(task) + 1;
-  char *qname = malloc(qlen);
-
-  if (!qname) {
-    return EXIT_FAILURE;
-  }
-
-  snprintf(qname, qlen, "%s%s", MAIN_NS_PREFIX, task);
-  int result = cmd_run_task(file, qname, force);
-  free(qname);
-
-  return result;
+  return cmd_run_task(file, argv[1], force);
 }
 
 static void parse_cli_args(int argc, char **argv, int start_idx,
@@ -359,6 +330,7 @@ int main(int argc, char **argv) {
       {"list",      no_argument,       0, 'l'},
       {"dot",       no_argument,       0, 'd'},
       {"dry-run",   no_argument,       0, 'y'},
+      {"force",     no_argument,       0, 'F'},
       {"repl",      no_argument,       0, 'r'},
       {"help",      no_argument,       0, 'h'},
       {"version",   no_argument,       0, 'v'},
@@ -367,17 +339,19 @@ int main(int argc, char **argv) {
 
   const char *directory = NULL;
   const char *file = DEFAULT_FILE;
+  int force = 0;
   int opt;
 
   enum { MODE_RUN, MODE_LIST, MODE_DOT, MODE_DRY, MODE_REPL } mode = MODE_RUN;
 
-  while ((opt = getopt_long(argc, argv, "C:f:ldyrhv", long_opts, NULL)) != -1) {
+  while ((opt = getopt_long(argc, argv, "C:f:ldyFrhv", long_opts, NULL)) != -1) {
     switch (opt) {
     case 'C': directory = optarg; break;
     case 'f': file = optarg; break;
     case 'l': mode = MODE_LIST; break;
     case 'd': mode = MODE_DOT; break;
     case 'y': mode = MODE_DRY; break;
+    case 'F': force = 1; break;
     case 'r': mode = MODE_REPL; break;
     case 'h': show_help(); return EXIT_SUCCESS;
     case 'v': show_version(); return EXIT_SUCCESS;
@@ -419,12 +393,12 @@ int main(int argc, char **argv) {
   }
 
   if (strcmp(target, "run") == 0) {
-    result = cmd_run_subcommand(file, argc - optind, &argv[optind]);
+    result = cmd_run_subcommand(file, force, argc - optind, &argv[optind]);
     free_cli_args();
     return result;
   }
 
-  result = cmd_run_task(file, target, 0);
+  result = cmd_run_task(file, target, force);
   free_cli_args();
   return result;
 }
