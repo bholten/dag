@@ -5,7 +5,8 @@
 ;; Global registry - initialize only once
 ;; catch returns 1 on error (not initialized), 0 on success (already initialized)
 let _dagwood_needs_init [catch { getvar dagwood::projects } _unused]
-if {== $_dagwood_needs_init 1} {
+
+if [== $_dagwood_needs_init 1] {
     namespace dagwood {
         var projects ()
         var imports #{}
@@ -183,29 +184,19 @@ proc _project {project_name body} {
 ;; Import Implementation
 ;; ============================================================================
 
-proc _import {path} {
-    return [quasiquote {
-        let _before_import [len $dagwood::projects]
-        load ,$path
-        let _after_import [len $dagwood::projects]
+macro import {path} {
+    let _before_import [len $dagwood::projects]
+    let _after_import [len $dagwood::projects]
+    let _imported_name [gensym]
 
-        if [> $_after_import $_before_import] {
-            let _imported_name [get $dagwood::projects [- $_after_import 1]]
-            set! dagwood::imports [put $dagwood::imports $_imported_name ,$path]
-        }
-    }]
-}
-
-proc _import_as {alias path} {
-    return [quasiquote {
-        let _before_import [len $dagwood::projects]
+    quasiquote {
         load ,$path
-        let _after_import [len $dagwood::projects]
-        if [> $_after_import $_before_import] {
-            let _imported_name [get $dagwood::projects [- $_after_import 1]]
-            set! dagwood::imports [put $dagwood::imports ,$alias $_imported_name]
+
+        if [> ,$_after_import ,$_before_import] {
+            let ,$_imported_name [get $dagwood::projects [- ,$_after_import 1]]
+            set! dagwood::imports [put $dagwood::imports ,$_imported_name ,$path]
         }
-    }]
+    }
 }
 
 ;; ============================================================================
@@ -221,29 +212,29 @@ proc task_get {qualified_name} {
     let tasks_var "${proj}::_tasks"
     let tasks [getvar $tasks_var]
 
-    return [get $tasks $task_name]
+    get $tasks $task_name
 }
 
 ;; Override a task completely
 ;; Usage: task_override project::taskname { description "..." run {...} }
-proc task_override {qualified_name body} {
+macro task_override {qualified_name body} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]
     let task_name [get $parts 1]
 
-    return [quasiquote {
-        ,${proj}::task_impl ,$task_name ,$body
-    }]
+    quasiquote {
+        ,${proj}::task_impl ,$task_name {,$body}
+    }
 }
 
 ;; Extend/modify an existing task
 ;; Usage: task_extend project::taskname { depends_on additional_dep }
-proc task_extend {qualified_name body} {
+macro task_extend {qualified_name body} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]
     let task_name [get $parts 1]
 
-    return [quasiquote {
+    quasiquote {
         let _existing [get $,${proj}::_tasks ,$task_name]
         var _task $_existing
 
@@ -288,14 +279,22 @@ proc task_extend {qualified_name body} {
             set! _task [put $_task run $val]
         }
 
-        eval ,$body
+        eval {,$body}
 
         set! ,${proj}::_tasks [put $,${proj}::_tasks ,$task_name $_task]
-    }]
+    }
+}
+
+;; Override project config
+;; Usage: project_override myproject { shell /bin/bash }
+macro project_override {project_name body} {
+    quasiquote {
+        ,${project_name}::config_impl {,$body}
+    }
 }
 
 ;; Disable/remove a task
-proc task_disable {qualified_name} {
+macro task_disable {qualified_name} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]
     let task_name [get $parts 1]

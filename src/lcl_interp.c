@@ -218,71 +218,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
   return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
-/*
- * Special form: import <path>
- *
- * Calls _import to get the import code, then evals it.
- * This loads the imported project and registers it.
- */
-static int s_import(lcl_interp *interp, int argc, const lcl_word **args,
-                    lcl_value **out) {
-  if (argc != 1) {
-    fprintf(stderr, "[dagwood] import requires exactly 1 argument\n");
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *path_val = NULL;
-  int rc = lcl_eval_word(interp, args[0], &path_val);
-
-  if (rc != LCL_RC_OK || !path_val) {
-    return LCL_RC_ERR;
-  }
-
-  const char *path = lcl_value_to_string(path_val);
-
-  if (!path || !path[0]) {
-    fprintf(stderr, "[dagwood] import path cannot be empty\n");
-    lcl_ref_dec(path_val);
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *import_proc = NULL;
-
-  if (lcl_get(interp, "_import", &import_proc) != LCL_OK || !import_proc) {
-    fprintf(stderr, "[dagwood] _import proc not found (DSL not loaded?)\n");
-    lcl_ref_dec(path_val);
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *import_code = NULL;
-  lcl_value *call_args[1] = {path_val};
-  rc = lcl_call_proc(interp, import_proc, 1, call_args, &import_code);
-  lcl_ref_dec(import_proc);
-  lcl_ref_dec(path_val);
-
-  if (rc != LCL_RC_OK || !import_code) {
-    fprintf(stderr, "[dagwood] _import failed\n");
-    return LCL_RC_ERR;
-  }
-
-  const char *import_code_str = lcl_value_to_string(import_code);
-  lcl_value *eval_result = NULL;
-  rc = lcl_eval_string(interp, import_code_str, &eval_result);
-  lcl_ref_dec(import_code);
-
-  if (eval_result) {
-    lcl_ref_dec(eval_result);
-  }
-
-  if (rc != LCL_RC_OK) {
-    fprintf(stderr, "[dagwood] import failed for: %s\n", path);
-    return LCL_RC_ERR;
-  }
-
-  *out = lcl_string_new("");
-  return *out ? LCL_RC_OK : LCL_RC_ERR;
-}
-
 struct interpreter {
   lcl_interp *interp;
   p_map *project_registry;
@@ -845,13 +780,11 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
 
           if (!replacement) {
             char var_name[256];
-            size_t copy_len = var_len < sizeof(var_name) - 1
-                                  ? var_len
-                                  : sizeof(var_name) - 1;
+            size_t copy_len =
+                var_len < sizeof(var_name) - 1 ? var_len : sizeof(var_name) - 1;
             memcpy(var_name, var_start, copy_len);
             var_name[copy_len] = '\0';
-            fprintf(stderr,
-                    "[dagwood] undefined namespace variable: $%s\n",
+            fprintf(stderr, "[dagwood] undefined namespace variable: $%s\n",
                     var_name);
 
             if (result) {
@@ -1137,7 +1070,7 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
           if (lcl_dict_get(tasks_dict, task_name, &task_dict) == LCL_OK &&
               task_dict) {
             dagwood_task *task =
-              extract_task(project_name, task_name, task_dict, project);
+                extract_task(project_name, task_name, task_dict, project);
 
             if (!task) {
               lcl_ref_dec(task_dict);
@@ -1236,7 +1169,6 @@ static void register_dagwood_commands(lcl_interp *interp) {
 
   /* DSL special forms - these call the LCL-based DSL and eval the result */
   lcl_register_spec(interp, "project", s_project);
-  lcl_register_spec(interp, "import", s_import);
 
   /* Additional commands for project-scoped variables and CLI args */
   lcl_register_proc(interp, "def", c_let_var);
@@ -1487,6 +1419,98 @@ interp_result interpreter_list_all(interpreter *interp) {
 
     if (cmd) {
       printf("  %s\n", cmd->id);
+    }
+  }
+
+  return INTERP_OK;
+}
+
+static void inspect_print_arr(const char *label, s_arr *arr) {
+  if (!arr || s_arr_len(arr) == 0) {
+    return;
+  }
+
+  printf("    %s:", label);
+
+  for (size_t i = 0; i < s_arr_len(arr); i++) {
+    printf(" %s", s_arr_get(arr, i));
+  }
+
+  printf("\n");
+}
+
+static void inspect_task(dagwood_task *task) {
+  printf("  %s\n", task->id);
+
+  if (task->description) {
+    printf("    description: %s\n", task->description);
+  }
+
+  if (task->shell) {
+    printf("    shell: %s\n", task->shell);
+  }
+
+  if (task->shell_arg) {
+    printf("    shell_arg: %s\n", task->shell_arg);
+  }
+
+  if (task->wd) {
+    printf("    wd: %s\n", task->wd);
+  }
+
+  if (task->run) {
+    printf("    run: %.80s%s\n", task->run,
+           strlen(task->run) > 80 ? "..." : "");
+  }
+
+  if (task->always_run) {
+    printf("    always_run: true\n");
+  }
+
+  inspect_print_arr("inputs", task->inputs);
+  inspect_print_arr("outputs", task->outputs);
+  inspect_print_arr("depends_on", task->depends_on);
+}
+
+interp_result interpreter_inspect(interpreter *interp, const char *task_name) {
+  if (task_name) {
+    dagwood_task *task = t_map_get(interp->task_registry, task_name);
+
+    if (!task) {
+      task = t_map_get(interp->command_registry, task_name);
+    }
+
+    if (!task) {
+      fprintf(stderr, "[dagwood] task not found: %s\n", task_name);
+      return INTERP_ERROR;
+    }
+
+    inspect_task(task);
+    return INTERP_OK;
+  }
+
+  t_map *t = interp->task_registry;
+  printf("Tasks:\n");
+
+  for (size_t i = t_map_begin(t); i < t_map_end(t); i++) {
+    dagwood_task *task = t_map_value(t, i);
+
+    if (task) {
+      inspect_task(task);
+    }
+  }
+
+  t_map *c = interp->command_registry;
+
+  if (c && t_map_begin(c) < t_map_end(c)) {
+    printf("Commands:\n");
+
+    for (size_t i = t_map_begin(c); i < t_map_end(c); i++) {
+      dagwood_task *cmd = t_map_value(c, i);
+
+      if (cmd) {
+        inspect_task(cmd);
+      }
     }
   }
 

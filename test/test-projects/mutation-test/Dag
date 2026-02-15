@@ -1,0 +1,33 @@
+;; Mutation test: import a library and mutate its task graph
+
+import lib/Dag
+
+;; Override: replace mylib::test entirely
+task_override mylib::test {
+    description "Overridden test"
+    depends_on mylib::build
+    run { echo "mylib tested (overridden)" }
+}
+
+;; Extend: add an extra dependency to mylib::build
+task_extend mylib::build {
+    always_run true
+}
+
+;; Disable: remove mylib::deploy from the graph
+task_disable mylib::deploy
+
+;; Override project config
+project_override mylib {
+    shell /bin/sh
+    description "Mutated library"
+}
+
+;; Define our own project that depends on the mutated import
+project mutator {
+    task integrate {
+        description "Integration task"
+        depends_on mylib::test
+        run { echo "integration done" }
+    }
+}

@@ -855,6 +855,80 @@ test_memo_collision() {
 }
 
 # ============================================================================
+# Task Mutation
+# ============================================================================
+
+test_task_mutation() {
+    log_section "Task Mutation"
+
+    local proj="$TEST_PROJECTS/mutation-test"
+    rm -rf "$proj/build"
+
+    # task_override: mylib::test description should be replaced
+    run_test_output_contains "task_override changes description" \
+        "Overridden test" \
+        "$DAGWOOD" -C "$proj" -i mylib::test
+
+    # task_override: deploy should be gone (task_disable)
+    local list_output
+    list_output=$("$DAGWOOD" -C "$proj" -l 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$list_output" | grep -qF "mylib::deploy"; then
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "task_disable removes task from list"
+    else
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "task_disable removes task from list"
+    fi
+
+    # task_extend: always_run should be set
+    run_test_output_contains "task_extend sets always_run" \
+        "always_run: true" \
+        "$DAGWOOD" -C "$proj" -i mylib::build
+
+    # project_override: description should be set
+    run_test_output_contains "project_override changes project description" \
+        "Mutated library" \
+        "$DAGWOOD" -C "$proj" -l
+
+    # Inspect all tasks
+    run_test_output_contains "inspect shows all tasks" \
+        "mutator::integrate" \
+        "$DAGWOOD" -C "$proj" -i
+
+    # Inspect specific task
+    run_test_output_contains "inspect shows specific task details" \
+        "description: Integration task" \
+        "$DAGWOOD" -C "$proj" -i mutator::integrate
+
+    # Inspect non-existent task fails
+    run_test_fails "inspect non-existent task fails" \
+        "$DAGWOOD" -C "$proj" -i nonexistent::task
+
+    # End-to-end execution of mutated graph
+    run_test_output_contains "mutated graph executes overridden task" \
+        "mylib tested (overridden)" \
+        "$DAGWOOD" -C "$proj"
+
+    run_test_output_contains "mutated graph executes own task" \
+        "integration done" \
+        "$DAGWOOD" -C "$proj"
+
+    # deploy should NOT have run (it was disabled)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ -f "$proj/build/deploy.out" ]]; then
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "disabled task did not execute"
+    else
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "disabled task did not execute"
+    fi
+
+    rm -rf "$proj/build"
+}
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -885,6 +959,7 @@ main() {
     test_multi_project
     test_args
     test_memo_collision
+    test_task_mutation
 
     # Summary
     log_section "Summary"

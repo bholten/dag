@@ -160,8 +160,8 @@
     size_t h, idx, i;                                                          \
                                                                                \
     if (m->len * 100 >= m->cap * STR_MAP_LOAD_FACTOR) {                        \
-      if (!prefix##__resize(m, m->cap * 2)) {                                 \
-        fprintf(stderr, "[dagwood] out of memory inserting " label "\n");       \
+      if (!prefix##__resize(m, m->cap * 2)) {                                  \
+        fprintf(stderr, "[dagwood] out of memory inserting " label "\n");      \
         return false;                                                          \
       }                                                                        \
     }                                                                          \
@@ -175,7 +175,7 @@
       if (!m->used[probe]) {                                                   \
         m->keys[probe] = strdup(key);                                          \
         if (!m->keys[probe]) {                                                 \
-          fprintf(stderr, "[dagwood] out of memory inserting " label "\n");     \
+          fprintf(stderr, "[dagwood] out of memory inserting " label "\n");    \
           return false;                                                        \
         }                                                                      \
         m->values[probe] = (value_type)(val);                                  \
@@ -190,7 +190,7 @@
       }                                                                        \
     }                                                                          \
                                                                                \
-    fprintf(stderr, "[dagwood] hash table full inserting " label "\n");         \
+    fprintf(stderr, "[dagwood] hash table full inserting " label "\n");        \
     return false;                                                              \
   }                                                                            \
                                                                                \
@@ -218,7 +218,9 @@
     return 0;                                                                  \
   }                                                                            \
                                                                                \
-  size_t prefix##_end(prefix *m) { return m->cap; }                            \
+  size_t prefix##_end(prefix *m) {                                             \
+    return m->cap;                                                             \
+  }                                                                            \
                                                                                \
   value_type prefix##_value(prefix *m, size_t index) {                         \
     if (index >= m->cap)                                                       \

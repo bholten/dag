@@ -186,8 +186,7 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
     }
 
     ts_map_set(g->memo, task->id, TASK_STALE);
-    printf("[dagwood] [%s] stale - no outputs (side-effect task)\n",
-           task->id);
+    printf("[dagwood] [%s] stale - no outputs (side-effect task)\n", task->id);
     return true;
   }
 

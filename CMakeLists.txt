@@ -21,6 +21,7 @@ set(LCL_BUILD_TIME ON CACHE BOOL "Build Lcl time extension" FORCE)
 set(LCL_BUILD_PROCESS ON CACHE BOOL "Build Lcl process extension" FORCE)
 set(LCL_BUILD_EXPECT_LIB ON CACHE BOOL "Build Lcl expect library" FORCE)
 set(LCL_BUILD_SH_LIB ON CACHE BOOL "Build Lcl sh library" FORCE)
+set(LCL_BUILD_MACRO_LIB ON CACHE BOOL "Build Lcl macro library" FORCE)
 
 add_subdirectory(submodules/lcl)
 

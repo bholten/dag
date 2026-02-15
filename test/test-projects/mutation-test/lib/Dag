@@ -1,0 +1,39 @@
+;; Library project for mutation tests
+;; Provides tasks that the main project will mutate
+
+project mylib {
+    def BUILD_DIR build
+
+    config {
+        shell /bin/sh
+    }
+
+    task build {
+        description "Build the library"
+        outputs $mylib::BUILD_DIR/lib.out
+        run {
+            mkdir -p $mylib::BUILD_DIR
+            echo "mylib built" > $mylib::BUILD_DIR/lib.out
+        }
+    }
+
+    task test {
+        description "Test the library"
+        depends_on mylib::build
+        outputs $mylib::BUILD_DIR/test.out
+        run {
+            mkdir -p $mylib::BUILD_DIR
+            echo "mylib tested (original)" > $mylib::BUILD_DIR/test.out
+        }
+    }
+
+    task deploy {
+        description "Deploy the library"
+        depends_on mylib::test
+        outputs $mylib::BUILD_DIR/deploy.out
+        run {
+            mkdir -p $mylib::BUILD_DIR
+            echo "mylib deployed" > $mylib::BUILD_DIR/deploy.out
+        }
+    }
+}

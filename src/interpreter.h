@@ -19,6 +19,7 @@ t_map *interpreter_command_registry(interpreter *interp, const char *file);
 const char *interpreter_get_error(interpreter *interp);
 
 interp_result interpreter_list_all(interpreter *interp);
+interp_result interpreter_inspect(interpreter *interp, const char *task_name);
 interp_result interpreter_repl(interpreter *interp);
 
 #endif

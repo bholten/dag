@@ -9,6 +9,7 @@
  *   dag -l                   List all tasks
  *   dag -d                   Print DAG as Graphviz dot
  *   dag -y                   Dry run (show what would execute)
+ *   dag -i [task]            Inspect task properties
  *   dag -r                   Start REPL
  */
 
@@ -68,6 +69,7 @@ static void show_help(void) {
   puts("  -l, --list             List all tasks");
   puts("  -d, --dot              Print DAG as Graphviz dot format");
   puts("  -y, --dry-run          Show execution order without running");
+  puts("  -i, --inspect          Inspect task properties (all or specific task)");
   puts("  -F, --force            Force rebuild (skip staleness checks)");
   puts("  -r, --repl             Start interactive REPL");
   puts("  -h, --help             Show this help message");
@@ -102,11 +104,13 @@ typedef struct {
 
 static dagwood_env *env_new(const char *file) {
   dagwood_env *env = calloc(1, sizeof(*env));
+
   if (!env) {
     return NULL;
   }
 
   env->interp = interpreter_new();
+
   if (!env->interp) {
     free(env);
     return NULL;
@@ -118,6 +122,7 @@ static dagwood_env *env_new(const char *file) {
   }
 
   env->tasks = interpreter_task_registry(env->interp, file);
+
   if (!env->tasks) {
     fprintf(stderr, "[dagwood] could not build project registry: %s\n",
             interpreter_get_error(env->interp));
@@ -134,20 +139,24 @@ static void env_delete(dagwood_env *env) {
   if (!env) {
     return;
   }
+
   if (g_graph) {
     dagwood_graph_delete(g_graph);
     g_graph = NULL;
   }
+
   interpreter_delete(env->interp);
   free(env);
 }
 
 static int env_build_graph(dagwood_env *env) {
   g_graph = dagwood_graph_new(env->tasks);
+
   if (!g_graph) {
     fprintf(stderr, "[dagwood] could not build graph\n");
     return -1;
   }
+
   setup_signal_handlers();
   return 0;
 }
@@ -155,6 +164,7 @@ static int env_build_graph(dagwood_env *env) {
 /* Look up task, falling back to command registry if needed */
 static dagwood_task *env_find_task(dagwood_env *env, const char *name) {
   dagwood_task *task = t_map_get(env->tasks, name);
+
   if (task) {
     return task;
   }
@@ -164,6 +174,7 @@ static dagwood_task *env_find_task(dagwood_env *env, const char *name) {
   }
 
   task = t_map_get(env->commands, name);
+
   if (task) {
     /* Promote command to task registry for execution */
     t_map_set(env->tasks, name, task);
@@ -173,6 +184,7 @@ static dagwood_task *env_find_task(dagwood_env *env, const char *name) {
 
 static int cmd_list(const char *file) {
   dagwood_env *env = env_new(file);
+
   if (!env) {
     return EXIT_FAILURE;
   }
@@ -184,6 +196,7 @@ static int cmd_list(const char *file) {
 
 static int cmd_dot(const char *file) {
   dagwood_env *env = env_new(file);
+
   if (!env) {
     return EXIT_FAILURE;
   }
@@ -200,6 +213,7 @@ static int cmd_dot(const char *file) {
 
 static int cmd_dry_run(const char *file) {
   dagwood_env *env = env_new(file);
+
   if (!env) {
     return EXIT_FAILURE;
   }
@@ -214,6 +228,18 @@ static int cmd_dry_run(const char *file) {
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
+static int cmd_inspect(const char *file, const char *task_name) {
+  dagwood_env *env = env_new(file);
+
+  if (!env) {
+    return EXIT_FAILURE;
+  }
+
+  interp_result r = interpreter_inspect(env->interp, task_name);
+  env_delete(env);
+  return r == INTERP_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
 static int cmd_repl(void) {
   interpreter *interp = interpreter_new();
   interpreter_repl(interp);
@@ -223,6 +249,7 @@ static int cmd_repl(void) {
 
 static int cmd_run_all(const char *file) {
   dagwood_env *env = env_new(file);
+
   if (!env) {
     return EXIT_FAILURE;
   }
@@ -239,6 +266,7 @@ static int cmd_run_all(const char *file) {
 
 static int cmd_run_task(const char *file, const char *name, int force) {
   dagwood_env *env = env_new(file);
+
   if (!env) {
     return EXIT_FAILURE;
   }
@@ -288,6 +316,7 @@ static void parse_cli_args(int argc, char **argv, int start_idx,
 
   if (arg_count > 0) {
     g_cli_args = calloc((size_t)arg_count, sizeof(cli_arg));
+
     if (!g_cli_args) {
       return;
     }
@@ -330,6 +359,7 @@ int main(int argc, char **argv) {
       {"list",      no_argument,       0, 'l'},
       {"dot",       no_argument,       0, 'd'},
       {"dry-run",   no_argument,       0, 'y'},
+      {"inspect",   no_argument,       0, 'i'},
       {"force",     no_argument,       0, 'F'},
       {"repl",      no_argument,       0, 'r'},
       {"help",      no_argument,       0, 'h'},
@@ -342,15 +372,24 @@ int main(int argc, char **argv) {
   int force = 0;
   int opt;
 
-  enum { MODE_RUN, MODE_LIST, MODE_DOT, MODE_DRY, MODE_REPL } mode = MODE_RUN;
+  enum {
+    MODE_RUN,
+    MODE_LIST,
+    MODE_DOT,
+    MODE_DRY,
+    MODE_INSPECT,
+    MODE_REPL
+  } mode = MODE_RUN;
 
-  while ((opt = getopt_long(argc, argv, "C:f:ldyFrhv", long_opts, NULL)) != -1) {
+  while ((opt = getopt_long(argc, argv, "C:f:ldyiFrhv", long_opts, NULL)) !=
+         -1) {
     switch (opt) {
     case 'C': directory = optarg; break;
     case 'f': file = optarg; break;
     case 'l': mode = MODE_LIST; break;
     case 'd': mode = MODE_DOT; break;
     case 'y': mode = MODE_DRY; break;
+    case 'i': mode = MODE_INSPECT; break;
     case 'F': force = 1; break;
     case 'r': mode = MODE_REPL; break;
     case 'h': show_help(); return EXIT_SUCCESS;
@@ -380,6 +419,10 @@ int main(int argc, char **argv) {
     return result;
   case MODE_DRY:
     result = cmd_dry_run(file);
+    free_cli_args();
+    return result;
+  case MODE_INSPECT:
+    result = cmd_inspect(file, target);
     free_cli_args();
     return result;
   case MODE_REPL: free_cli_args(); return cmd_repl();
