@@ -31,9 +31,11 @@ other projects into your task-graph, with full namespace isolation.
 This is nice for polyglot, multi-project builds, or for depending on
 third-party projects.
 
-*Planned feature*: Graph mutation -- the ability to modify, extend, or
-override tasks from imported projects. This will enable extending
-third-party projects without forking them.
+Imported projects can also be mutated from the importer: tasks can be
+overridden, extended, or disabled, and project-level config can be
+overridden, all without forking the imported project. The relevant DSL
+keywords are task_override, task_extend, task_disable, project_override,
+and task_get (the read-only counterpart).
 
 Tasks in Dagwood are simply shell commands. Dagwood only cares about
 the return code, but the command could be anything. It could be a
@@ -46,7 +48,7 @@ Some features of Dagwood:
   nested project blocks:
 
     project myproject {
-        def BUILD_DIR build
+        let BUILD_DIR build
 
         task compile {
             inputs src/main.c
@@ -102,13 +104,22 @@ Some features of Dagwood:
     arg CC gcc
     arg CFLAGS "-O2"
 
-  Then run: dagwood CC=clang CFLAGS="-O3" build
+  Then run: dag CC=clang CFLAGS="-O3" build
 
-- Dagwood ships with a REPL that allows you to interactively inspect
-  and run your project.
+- Dagwood ships with a REPL (`dag -r`) that loads your project and
+  drops you into an interactive prompt with the loaded namespaces,
+  task data, and CLI overrides all in scope. Useful for poking at
+  what Dagwood saw before you commit to running it.
 
 - Dagwood can emit Graphviz and you can inspect the DAG without
   running the project.
+
+- Dagwood's own log lines go to stderr; child task output goes to
+  stdout, prefixed with the task id (`[project::task] line`). This
+  means `dag | sort` works, `dag <task> 2>/dev/null` gives you only
+  the child's own output, and structured-output tools (jq, dot, etc.)
+  see clean data. The -q flag suppresses child output entirely if you
+  only care about exit status.
 
 LCL Scripting Features:
 
@@ -202,8 +213,8 @@ run as a build-server, does not listen to syscalls to figure out
 what to cache, etc.
 
 The inspiration Dagwood took from Bazel is importing and namespacing
-other projects (even third-party ones). Graph mutation (modifying
-imported project DAGs) is a planned feature.
+other projects (even third-party ones), and being able to override
+or extend imported tasks without forking them.
 
 This is useful when, say, you want to compile a patch or plugin into a
 submoduled project -- but you don't necessarily want to fork the
@@ -215,12 +226,10 @@ deployment configuration and release management.
 Quick Start:
 
     # Build (requires C compiler, cmake, and xxd)
-    mkdir build && cd build
-    cmake ..
-    make
+    cmake -B build && cmake --build build
 
-    # Create a Dagwood file
-    cat > Dagwood << 'EOF'
+    # Create a Dag file
+    cat > Dag << 'EOF'
     project hello {
         task greet {
             run { echo "Hello, World!" }
@@ -229,10 +238,13 @@ Quick Start:
     EOF
 
     # Run it
-    ./dagwood
+    ./build/dag
 
     # List tasks
-    ./dagwood --list
+    ./build/dag --list
 
     # See the DAG
-    ./dagwood --dot | dot -Tpng -o dag.png
+    ./build/dag --dot | dot -Tpng -o dag.png
+
+    # Run the full test suite (regular + AddressSanitizer)
+    ./test/check_all.sh
