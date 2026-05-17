@@ -1,6 +1,6 @@
 project project_2 {
-    def BUILD_DIR build
-    def OUTPUT $project_2::BUILD_DIR/output.txt
+    let BUILD_DIR build
+    let OUTPUT $project_2::BUILD_DIR/output.txt
 
     task build {
         description "Build project_2"

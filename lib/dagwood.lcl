@@ -19,21 +19,14 @@ if [== $_dagwood_needs_init 1] {
 ;; ============================================================================
 ;; Project-scoped variable definition (DSL keyword)
 ;; ============================================================================
-
-;; def name value -- bind `name` into the current project's namespace.
-;; Errors if used outside a project block. Silent overwrite on redefinition.
-proc def {name value} {
-    let proj $dagwood::current_project
-    if [empty? $proj] {
-        error "def: must be used inside a project block"
-    }
-    Ns::set [getvar $proj] $name $value
-    return $value
-}
-
-;; arg name default -- like def, but resolves CLI override before falling
-;; back to the supplied default. CLI args are stored by interpreter_set_cli_arg
-;; under ::__dagwood_cli_args::<name>.
+;;
+;; After Phase C, `def` is gone: project bodies are evaluated inside their
+;; namespace, so bare `let X Y` and `var X Y` auto-scope to $project::X.
+;;
+;; `arg` remains because it has logic beyond binding: it resolves CLI
+;; overrides (set via `dag KEY=value`) before falling back to the supplied
+;; default. CLI args are stored by interpreter_set_cli_arg under
+;; ::__dagwood_cli_args::<name>.
 proc arg {name default_val} {
     let proj $dagwood::current_project
     if [empty? $proj] {
@@ -78,11 +71,11 @@ proc _split_qualified {qualified_name} {
 ;; ============================================================================
 
 ;; The _project proc is called by the C special form with project name and body.
-;; It returns a list: (setup_code body) where:
+;; It returns a list: (setup_code wrapped_body) where:
 ;;   - setup_code should be evaluated at TOP LEVEL to create namespace
-;;   - body should be evaluated separately (C handles this)
+;;   - wrapped_body is the user's body wrapped in `namespace $project_name { ... }`
+;;     so that bare `let X Y` / `var X Y` auto-scope to $project::X
 proc _project {project_name body} {
-    ;; Return setup code and body as separate elements
     let setup_code [quasiquote {
         ;; Register project
         set! dagwood::projects [List::push $dagwood::projects ,$project_name]
@@ -222,7 +215,15 @@ proc _project {project_name body} {
         }
     }]
 
-    return [list $setup_code $body]
+    ;; Phase C: wrap user body in `namespace ${project_name} { body }` so bare
+    ;; `let X Y` / `var X Y` in the body auto-scope to the project namespace.
+    let wrapped_body [quasiquote {
+        namespace ,$project_name {
+            ,$body
+        }
+    }]
+
+    return [list $setup_code $wrapped_body]
 }
 
 ;; ============================================================================

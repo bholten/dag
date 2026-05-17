@@ -1,7 +1,7 @@
 ;; Test that undefined namespace variables cause a hard failure
 
 project undef_var_test {
-    def BUILD_DIR build
+    let BUILD_DIR build
 
     task bad_var {
         description "Uses a misspelled variable"

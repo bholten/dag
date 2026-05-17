@@ -1,6 +1,6 @@
 project project_3 {
-    def BUILD_DIR build
-    def OUTPUT $project_3::BUILD_DIR/combined.txt
+    let BUILD_DIR build
+    let OUTPUT $project_3::BUILD_DIR/combined.txt
 
     ;; This task depends on outputs from project_1 and project_2
     task combine {

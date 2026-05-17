@@ -5,8 +5,8 @@ project ns_test {
     ;; ============================================================================
     ;; Test 1: Basic def variable substitution
     ;; ============================================================================
-    def BUILD_DIR build
-    def OUTPUT_FILE output.txt
+    let BUILD_DIR build
+    let OUTPUT_FILE output.txt
 
     task test_let_vars {
         description "Test let variable substitution in run script"
@@ -20,7 +20,7 @@ project ns_test {
     ;; ============================================================================
     ;; Test 2: def variable with list value
     ;; ============================================================================
-    def FILE_LIST (file1.txt file2.txt file3.txt)
+    let FILE_LIST (file1.txt file2.txt file3.txt)
 
     task test_let_list {
         description "Test def with list value"
@@ -33,8 +33,8 @@ project ns_test {
     ;; ============================================================================
     ;; Test 3: Task dependency via explicit outputs
     ;; ============================================================================
-    def PRODUCER_OUT build/produced.txt
-    def CONSUMER_OUT build/consumed.txt
+    let PRODUCER_OUT build/produced.txt
+    let CONSUMER_OUT build/consumed.txt
 
     task producer {
         description "Producer task for output reference test"

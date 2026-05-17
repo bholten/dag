@@ -6,7 +6,7 @@ import project_2/Dag
 import project_3/Dag
 
 project multiproject {
-    def BUILD_DIR build
+    let BUILD_DIR build
 
     ;; Top-level task that depends on all sub-projects
     task all {

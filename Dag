@@ -9,7 +9,7 @@ project dagwood {
         shell_arg -c
     }
 
-    def BUILD_FOLDER build
+    let BUILD_FOLDER build
 
     task build_pre_reqs {
         description "Setup the build folder"
@@ -19,13 +19,13 @@ project dagwood {
         }
     }
 
-    def CC gcc
-    def SOURCE [glob src/*.c]
-    def HEADERS [glob src/*.h]
+    let CC gcc
+    let SOURCE [glob src/*.c]
+    let HEADERS [glob src/*.h]
 
-    def STANDARD_OPTS "-std=c11 -Os -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -D_GNU_SOURCE -Wstrict-overflow -fno-strict-aliasing"
-    def DEBUG_OPTS "-g3 -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline -fsanitize=address"
-    def RELEASE_OPTS "-O2 -DNDEBUG -s -march=native"
+    let STANDARD_OPTS "-std=c11 -Os -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -D_GNU_SOURCE -Wstrict-overflow -fno-strict-aliasing"
+    let DEBUG_OPTS "-g3 -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline -fsanitize=address"
+    let RELEASE_OPTS "-O2 -DNDEBUG -s -march=native"
 
     task debug {
         description "Build Dagwood - debug"
@@ -47,7 +47,7 @@ project dagwood {
         }
     }
 
-    def COMPILE_COMMANDS compile_commands.json
+    let COMPILE_COMMANDS compile_commands.json
 
     task bear {
         description "Generate compile_commands.json for clangd"

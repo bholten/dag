@@ -1,10 +1,10 @@
 project simple_project {
-    def S1_BUILD_DIR s1/build
-    def S2_BUILD_DIR s2/build
-    def S1_OUT_1 s1/build/1.out
-    def S1_OUT_2 s1/build/2.out
-    def S1_OUT_3 s1/build/3.out
-    def S2_OUT s2/build/1.out
+    let S1_BUILD_DIR s1/build
+    let S2_BUILD_DIR s2/build
+    let S1_OUT_1 s1/build/1.out
+    let S1_OUT_2 s1/build/2.out
+    let S1_OUT_3 s1/build/3.out
+    let S2_OUT s2/build/1.out
 
     task step_1 {
         description "Step 1 Test - make a bunch of output files"

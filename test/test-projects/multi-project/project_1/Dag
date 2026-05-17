@@ -1,6 +1,6 @@
 project project_1 {
-    def TASK_1_BUILD_DIR task_1/build
-    def TASK_1_OUT $project_1::TASK_1_BUILD_DIR/task_1.out
+    let TASK_1_BUILD_DIR task_1/build
+    let TASK_1_OUT $project_1::TASK_1_BUILD_DIR/task_1.out
 
     task task_1 {
         outputs $project_1::TASK_1_OUT
@@ -11,7 +11,7 @@ project project_1 {
         }
     }
 
-    def TASK_2_BUILD_DIR task_2/build
+    let TASK_2_BUILD_DIR task_2/build
 
     task task_2 {
         inputs $project_1::TASK_1_OUT
