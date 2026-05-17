@@ -1,12 +1,14 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <poll.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -17,6 +19,22 @@
 #include "data.h"
 
 extern char **environ;
+
+#define DAGWOOD_LINE_BUF_SIZE 8192
+
+/* One per task in a layer. Holds the spawned child's pid, the parent's
+ * read ends of its stdout/stderr pipes, and per-stream line buffers.
+ * pid == -1 means the task was skipped (not stale or invalid). */
+struct task_capture {
+  dagwood_task *task;
+  pid_t pid;
+  int out_fd;
+  int err_fd;
+  size_t out_len;
+  size_t err_len;
+  char out_buf[DAGWOOD_LINE_BUF_SIZE];
+  char err_buf[DAGWOOD_LINE_BUF_SIZE];
+};
 
 dagwood_graph *dagwood_graph_new(t_map *task_registry) {
   dagwood_graph *g = calloc(1, sizeof(*g));
@@ -255,6 +273,145 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
   return false;
 }
 
+/* Emit `len` bytes from `data` as a single prefixed line on `out`.
+ * Always appends a newline (synthesized if `data` didn't end with one). */
+static void emit_line(const char *task_id, const char *data, size_t len,
+                      FILE *out, bool quiet) {
+  if (quiet) {
+    return;
+  }
+
+  fprintf(out, "[%s] %.*s\n", task_id, (int)len, data);
+  fflush(out);
+}
+
+/* Scan `*len` bytes in `buf` for newlines. For each complete line, emit
+ * it (without the trailing \n) and shift the buffer. If the buffer is
+ * completely full with no newline found, emit what we have with a
+ * synthesized terminator and reset. */
+static void drain_buffer(const char *task_id, char *buf, size_t *len,
+                         FILE *out, bool quiet) {
+  size_t start = 0;
+  size_t i;
+
+  for (i = 0; i < *len; i++) {
+    if (buf[i] == '\n') {
+      emit_line(task_id, buf + start, i - start, out, quiet);
+      start = i + 1;
+    }
+  }
+
+  if (start > 0) {
+    if (start < *len) {
+      memmove(buf, buf + start, *len - start);
+    }
+    *len -= start;
+  }
+
+  if (*len == DAGWOOD_LINE_BUF_SIZE) {
+    /* Buffer full, no newline in sight: split silently per design. */
+    emit_line(task_id, buf, *len, out, quiet);
+    *len = 0;
+  }
+}
+
+/* Flush any trailing partial line at EOF. */
+static void flush_partial(const char *task_id, char *buf, size_t *len,
+                          FILE *out, bool quiet) {
+  if (*len > 0) {
+    emit_line(task_id, buf, *len, out, quiet);
+    *len = 0;
+  }
+}
+
+/* Drain pipes via poll() until every capture's stdout and stderr have
+ * hit EOF (i.e. every child has exited and its pipes have been read
+ * dry). */
+static void drain_captures(struct task_capture *caps, size_t count,
+                           bool quiet) {
+  struct pollfd *pfds = calloc(count * 2, sizeof(*pfds));
+  /* Parallel array: pfd_owner[i] is the cap index, pfd_is_err[i] is the
+   * stream selector for pfds[i]. */
+  size_t *pfd_owner = calloc(count * 2, sizeof(*pfd_owner));
+  bool *pfd_is_err = calloc(count * 2, sizeof(*pfd_is_err));
+
+  if (!pfds || !pfd_owner || !pfd_is_err) {
+    fprintf(stderr, "[dagwood] failed to allocate poll arrays\n");
+    free(pfds);
+    free(pfd_owner);
+    free(pfd_is_err);
+    return;
+  }
+
+  while (1) {
+    size_t nfds = 0;
+
+    for (size_t i = 0; i < count; i++) {
+      if (caps[i].out_fd >= 0) {
+        pfds[nfds].fd = caps[i].out_fd;
+        pfds[nfds].events = POLLIN;
+        pfds[nfds].revents = 0;
+        pfd_owner[nfds] = i;
+        pfd_is_err[nfds] = false;
+        nfds++;
+      }
+
+      if (caps[i].err_fd >= 0) {
+        pfds[nfds].fd = caps[i].err_fd;
+        pfds[nfds].events = POLLIN;
+        pfds[nfds].revents = 0;
+        pfd_owner[nfds] = i;
+        pfd_is_err[nfds] = true;
+        nfds++;
+      }
+    }
+
+    if (nfds == 0) {
+      break;
+    }
+
+    int pr = poll(pfds, nfds, -1);
+
+    if (pr < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+
+      perror("[dagwood] poll");
+      break;
+    }
+
+    for (size_t i = 0; i < nfds; i++) {
+      if (pfds[i].revents == 0) {
+        continue;
+      }
+
+      struct task_capture *cap = &caps[pfd_owner[i]];
+      bool is_err = pfd_is_err[i];
+      int *fdp = is_err ? &cap->err_fd : &cap->out_fd;
+      char *buf = is_err ? cap->err_buf : cap->out_buf;
+      size_t *blen = is_err ? &cap->err_len : &cap->out_len;
+      FILE *target = is_err ? stderr : stdout;
+
+      ssize_t n = read(*fdp, buf + *blen, DAGWOOD_LINE_BUF_SIZE - *blen);
+
+      if (n > 0) {
+        *blen += (size_t)n;
+        drain_buffer(cap->task->id, buf, blen, target, quiet);
+      } else if (n == 0 || (n < 0 && errno != EINTR)) {
+        /* EOF or fatal read error: flush partial and close. */
+        flush_partial(cap->task->id, buf, blen, target, quiet);
+        close(*fdp);
+        *fdp = -1;
+      }
+    }
+  }
+
+  free(pfds);
+  free(pfd_owner);
+  free(pfd_is_err);
+}
+
 static bool run_layer(dagwood_graph *g, t_arr *layer) {
   if (!g->graph_built) {
     return false;
@@ -262,10 +419,19 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
 
   size_t count = t_arr_len(layer);
   pid_t *pids = calloc(count, sizeof(pid_t));
+  struct task_capture *caps = calloc(count, sizeof(*caps));
 
-  if (!pids) {
-    fprintf(stderr, "[dagwood] failed to allocate pid array\n");
+  if (!pids || !caps) {
+    fprintf(stderr, "[dagwood] failed to allocate layer state\n");
+    free(pids);
+    free(caps);
     return false;
+  }
+
+  for (size_t i = 0; i < count; i++) {
+    caps[i].pid = -1;
+    caps[i].out_fd = -1;
+    caps[i].err_fd = -1;
   }
 
   g->pidsv_unsafe = pids;
@@ -275,6 +441,7 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
 
   for (size_t i = 0; i < count; i++) {
     dagwood_task *t = t_arr_get(layer, i);
+    caps[i].task = t;
 
     if (!task_stale(g, t)) {
       fprintf(stderr, "[dagwood] [%s] task not stale\n", t->id);
@@ -290,6 +457,23 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
       continue;
     }
 
+    int out_pipe[2];
+    int err_pipe[2];
+
+    if (pipe(out_pipe) != 0) {
+      perror("[dagwood] pipe");
+      spawn_ok = false;
+      break;
+    }
+
+    if (pipe(err_pipe) != 0) {
+      perror("[dagwood] pipe");
+      close(out_pipe[0]);
+      close(out_pipe[1]);
+      spawn_ok = false;
+      break;
+    }
+
     pid_t pid;
     posix_spawnattr_t attr;
     posix_spawnattr_init(&attr);
@@ -298,13 +482,21 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
 
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDOUT_FILENO);
-    posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, STDERR_FILENO);
 
     if (t->wd != NULL) {
       fprintf(stderr, "[dagwood] [%s] working directory: %s\n", t->id, t->wd);
       dagwood_spawn_addchdir(&actions, t->wd);
     }
+
+    /* Wire the child's stdout/stderr to our pipe write ends, then close
+     * the parent's read ends (which the child inherited) so EOF
+     * propagates correctly when the child exits. */
+    posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, err_pipe[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, out_pipe[0]);
+    posix_spawn_file_actions_addclose(&actions, err_pipe[0]);
+    posix_spawn_file_actions_addclose(&actions, out_pipe[1]);
+    posix_spawn_file_actions_addclose(&actions, err_pipe[1]);
 
     char *argv[] = {(char *)t->shell, (char *)t->shell_arg, (char *)t->run,
                     NULL};
@@ -315,11 +507,20 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);
 
+    /* Parent never writes to these. Close so child sees EOF on exit. */
+    close(out_pipe[1]);
+    close(err_pipe[1]);
+
     if (spawn_status == 0) {
       fprintf(stderr, "[dagwood] [%s] spawned\n", t->id);
       pids[i] = pid;
+      caps[i].pid = pid;
+      caps[i].out_fd = out_pipe[0];
+      caps[i].err_fd = err_pipe[0];
     } else {
       fprintf(stderr, "[dagwood] [%s] spawn failed\n", t->id);
+      close(out_pipe[0]);
+      close(err_pipe[0]);
 
       /* Kill already-spawned processes in this layer */
       for (size_t k = 0; k < i; k++) {
@@ -332,6 +533,9 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
       break;
     }
   }
+
+  /* Stream prefixed child output until every pipe hits EOF. */
+  drain_captures(caps, count, g->quiet);
 
   bool layer_successful = spawn_ok;
 
@@ -351,7 +555,11 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
       continue;
     }
 
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    if (WIFSIGNALED(status)) {
+      fprintf(stderr, "[dagwood] [%s] terminated by signal %d\n",
+              caps[j].task->id, WTERMSIG(status));
+      layer_successful = false;
+    } else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
       fprintf(stderr, "[dagwood] task number %zu failed\n", j);
       layer_successful = false;
     }
@@ -360,6 +568,7 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
   g->pidsv_unsafe = NULL;
   g->pidsc = 0;
   free(pids);
+  free(caps);
 
   return layer_successful;
 }

@@ -59,6 +59,7 @@ typedef struct dagwood_graph {
   size_t pidsc;
 
   bool force_run;
+  bool quiet;
   bool graph_built;
 } dagwood_graph;
 

@@ -255,6 +255,143 @@ test_task_execution() {
     run_test "step_2 created s2/build/1.out" test -f "$proj/s2/build/1.out"
 }
 
+test_output_capture() {
+    log_section "Output Capture & Prefix (#45 Phase 2)"
+
+    local proj="$TEST_PROJECTS/output-capture-test"
+
+    # Plain stdout: every line gets a [task] prefix, in order.
+    local out
+    out=$("$DAGWOOD" -C "$proj" "capture::plain_stdout" 2>/dev/null)
+    run_test_output_exact "plain stdout lines are prefixed in order" \
+        "[capture::plain_stdout] first
+[capture::plain_stdout] second
+[capture::plain_stdout] third" \
+        bash -c "'$DAGWOOD' -C '$proj' capture::plain_stdout 2>/dev/null"
+
+    # Plain stderr: lines go to parent stderr with prefix, NOT stdout.
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local stderr_only
+    stderr_only=$("$DAGWOOD" -C "$proj" capture::plain_stderr 2>&1 1>/dev/null)
+    if echo "$stderr_only" | grep -qF "[capture::plain_stderr] err 1" && \
+       echo "$stderr_only" | grep -qF "[capture::plain_stderr] err 2"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "stderr lines reach parent stderr with task prefix"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "stderr lines missing or wrong channel"
+    fi
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local stdout_only
+    stdout_only=$("$DAGWOOD" -C "$proj" capture::plain_stderr 2>/dev/null)
+    if [[ -z "$stdout_only" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "stderr-only task produces no stdout"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "stderr-only task leaked to stdout: $stdout_only"
+    fi
+
+    # Partial trailing line is flushed at EOF (no data dropped).
+    run_test_output_exact "trailing partial line flushed at EOF" \
+        "[capture::no_trailing_newline] no_newline_here" \
+        bash -c "'$DAGWOOD' -C '$proj' capture::no_trailing_newline 2>/dev/null"
+
+    # Long line (>8 KB without newline): split silently into multiple
+    # prefixed lines; concatenated payload preserves every byte.
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local long_out
+    long_out=$("$DAGWOOD" -C "$proj" capture::long_line 2>/dev/null)
+    # Strip prefixes, concatenate, count x's.
+    local x_count
+    x_count=$(echo "$long_out" | sed 's/^\[[^]]*\] //' | tr -d '\n' | wc -c)
+    if [[ "$x_count" == "10000" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "long line split silently, payload preserved (10000 bytes)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "long line payload corrupted (got $x_count bytes, expected 10000)"
+    fi
+
+    # Long line should produce at least 2 prefixed lines (split).
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local prefix_count
+    prefix_count=$(echo "$long_out" | grep -c '^\[capture::long_line\]')
+    if [[ "$prefix_count" -ge 2 ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "long line produces multiple prefixed segments ($prefix_count)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "long line should have split into >= 2 segments (got $prefix_count)"
+    fi
+
+    # Crasher: partial line flushed, then signal annotation on stderr.
+    run_test_output_contains_any_exit "crash: pre-crash output reaches stdout" \
+        "[capture::crasher] before crash" \
+        bash -c "'$DAGWOOD' -C '$proj' capture::crasher 2>/dev/null"
+    run_test_output_contains_any_exit "crash: signal annotation reported" \
+        "terminated by signal" "$DAGWOOD" -C "$proj" capture::crasher
+    run_test_fails "crash: task failure propagates" \
+        "$DAGWOOD" -C "$proj" capture::crasher
+
+    # Parallel layer: each sibling's lines remain attributable.
+    # The project also contains capture::crasher which will fail, so
+    # `|| true` lets us inspect the output regardless of exit code.
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local par_out
+    par_out=$("$DAGWOOD" -C "$proj" 2>/dev/null || true)
+    local a_lines b_lines c_lines
+    a_lines=$(echo "$par_out" | grep -c '^\[capture::parallel_a\]')
+    b_lines=$(echo "$par_out" | grep -c '^\[capture::parallel_b\]')
+    c_lines=$(echo "$par_out" | grep -c '^\[capture::parallel_c\]')
+    # Each task emits 3 lines; should all be present (interleaving allowed).
+    if [[ "$a_lines" == "3" && "$b_lines" == "3" && "$c_lines" == "3" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "parallel layer: all sibling output attributed correctly"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "parallel layer counts wrong (a=$a_lines b=$b_lines c=$c_lines)"
+    fi
+
+    # -q suppresses child output but task still runs (exit 0, side effect).
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local quiet_out
+    quiet_out=$("$DAGWOOD" -q -C "$proj" capture::plain_stdout 2>/dev/null)
+    if [[ -z "$quiet_out" ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "-q suppresses child stdout"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "-q did not suppress stdout (got: $quiet_out)"
+    fi
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local quiet_err
+    quiet_err=$("$DAGWOOD" -q -C "$proj" capture::plain_stderr 2>&1 1>/dev/null)
+    # Look for lines that START with the prefix (i.e. captured child output),
+    # not [dagwood] chatter which also mentions the task id mid-line.
+    if echo "$quiet_err" | grep -qE '^\[capture::plain_stderr\]'; then
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "-q did not suppress child stderr"
+    else
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "-q suppresses child stderr"
+    fi
+
+    # -q does NOT suppress [dagwood] chatter (orthogonal axis).
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local quiet_chatter
+    quiet_chatter=$("$DAGWOOD" -q -C "$proj" capture::plain_stdout 2>&1 1>/dev/null)
+    if echo "$quiet_chatter" | grep -qF "[dagwood]"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "-q preserves [dagwood] chatter on stderr"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "-q wrongly suppressed [dagwood] chatter"
+    fi
+}
+
 test_output_channels() {
     log_section "Output Channels (stdout/stderr split, #45)"
 
@@ -1007,6 +1144,7 @@ main() {
     test_cli_dry_run
     test_task_execution
     test_output_channels
+    test_output_capture
     test_individual_task
     test_dependency_chain
     test_staleness

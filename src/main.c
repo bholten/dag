@@ -71,6 +71,7 @@ static void show_help(void) {
   puts("  -y, --dry-run          Show execution order without running");
   puts("  -i, --inspect          Inspect task properties (all or specific task)");
   puts("  -F, --force            Force rebuild (skip staleness checks)");
+  puts("  -q, --quiet            Suppress child task output (still see [dagwood] chatter on stderr)");
   puts("  -r, --repl             Start interactive REPL");
   puts("  -h, --help             Show this help message");
   puts("  -v, --version          Print version");
@@ -247,7 +248,7 @@ static int cmd_repl(void) {
   return EXIT_SUCCESS;
 }
 
-static int cmd_run_all(const char *file) {
+static int cmd_run_all(const char *file, int quiet) {
   dagwood_env *env = env_new(file);
 
   if (!env) {
@@ -259,12 +260,17 @@ static int cmd_run_all(const char *file) {
     return EXIT_FAILURE;
   }
 
+  if (quiet) {
+    g_graph->quiet = true;
+  }
+
   int ok = dagwood_graph_execute(g_graph);
   env_delete(env);
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-static int cmd_run_task(const char *file, const char *name, int force) {
+static int cmd_run_task(const char *file, const char *name, int force,
+                        int quiet) {
   dagwood_env *env = env_new(file);
 
   if (!env) {
@@ -286,12 +292,16 @@ static int cmd_run_task(const char *file, const char *name, int force) {
     g_graph->force_run = true;
   }
 
+  if (quiet) {
+    g_graph->quiet = true;
+  }
+
   int ok = dagwood_graph_execute_task(g_graph, name);
   env_delete(env);
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-static int cmd_run_subcommand(const char *file, int force, int argc,
+static int cmd_run_subcommand(const char *file, int force, int quiet, int argc,
                               char **argv) {
   /* argv[0] is "run", argv[1] should be the task name */
   if (argc < 2) {
@@ -299,7 +309,7 @@ static int cmd_run_subcommand(const char *file, int force, int argc,
     return EXIT_FAILURE;
   }
 
-  return cmd_run_task(file, argv[1], force);
+  return cmd_run_task(file, argv[1], force, quiet);
 }
 
 static void parse_cli_args(int argc, char **argv, int start_idx,
@@ -361,6 +371,7 @@ int main(int argc, char **argv) {
       {"dry-run",   no_argument,       0, 'y'},
       {"inspect",   no_argument,       0, 'i'},
       {"force",     no_argument,       0, 'F'},
+      {"quiet",     no_argument,       0, 'q'},
       {"repl",      no_argument,       0, 'r'},
       {"help",      no_argument,       0, 'h'},
       {"version",   no_argument,       0, 'v'},
@@ -370,6 +381,7 @@ int main(int argc, char **argv) {
   const char *directory = NULL;
   const char *file = DEFAULT_FILE;
   int force = 0;
+  int quiet = 0;
   int opt;
 
   enum {
@@ -381,7 +393,7 @@ int main(int argc, char **argv) {
     MODE_REPL
   } mode = MODE_RUN;
 
-  while ((opt = getopt_long(argc, argv, "C:f:ldyiFrhv", long_opts, NULL)) !=
+  while ((opt = getopt_long(argc, argv, "C:f:ldyiFqrhv", long_opts, NULL)) !=
          -1) {
     switch (opt) {
     case 'C': directory = optarg; break;
@@ -391,6 +403,7 @@ int main(int argc, char **argv) {
     case 'y': mode = MODE_DRY; break;
     case 'i': mode = MODE_INSPECT; break;
     case 'F': force = 1; break;
+    case 'q': quiet = 1; break;
     case 'r': mode = MODE_REPL; break;
     case 'h': show_help(); return EXIT_SUCCESS;
     case 'v': show_version(); return EXIT_SUCCESS;
@@ -430,18 +443,19 @@ int main(int argc, char **argv) {
   }
 
   if (target == NULL) {
-    result = cmd_run_all(file);
+    result = cmd_run_all(file, quiet);
     free_cli_args();
     return result;
   }
 
   if (strcmp(target, "run") == 0) {
-    result = cmd_run_subcommand(file, force, argc - optind, &argv[optind]);
+    result =
+        cmd_run_subcommand(file, force, quiet, argc - optind, &argv[optind]);
     free_cli_args();
     return result;
   }
 
-  result = cmd_run_task(file, target, force);
+  result = cmd_run_task(file, target, force, quiet);
   free_cli_args();
   return result;
 }
