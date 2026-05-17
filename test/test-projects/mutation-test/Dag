@@ -23,6 +23,13 @@ project_override mylib {
     description "Mutated library"
 }
 
+;; Extend: append more deps to mylib::package, which already has
+;; depends_on (mylib::build mylib::test). Tests the list-concat path
+;; (Issue #37).
+task_extend mylib::package {
+    depends_on mylib::build
+}
+
 ;; Define our own project that depends on the mutated import
 project mutator {
     task integrate {

@@ -15,6 +15,20 @@ if [== $_dagwood_needs_init 1] {
     }
 }
 
+;; Concatenate two values as lists. Scalars are promoted to single-element
+;; lists. Used by task_extend to extend (not overwrite) list attributes.
+;; If existing is empty, returns val unchanged so single-scalar attributes
+;; like `description` continue to work via the same path.
+proc _extend_list {existing val} {
+    if [empty? $existing] {
+        return $val
+    }
+
+    let lhs [if [list? $existing] { $existing } { list $existing }]
+    let rhs [if [list? $val] { $val } { list $val }]
+    return [List::concat $lhs $rhs]
+}
+
 proc _split_qualified {qualified_name} {
     let idx [String::find $qualified_name "::"]
 
@@ -243,13 +257,7 @@ macro task_extend {qualified_name body} {
         }
 
         proc depends_on {val} {
-            let existing [get $_task depends-on]
-
-            if {empty? $existing} {
-                set! _task [put $_task depends-on $val]
-            } else {
-                set! _task [put $_task depends-on [List::push $existing $val]]
-            }
+            set! _task [put $_task depends-on [_extend_list [get $_task depends-on] $val]]
         }
 
         proc description {val} {
@@ -257,22 +265,11 @@ macro task_extend {qualified_name body} {
         }
 
         proc inputs {val} {
-            let existing [get $_task inputs]
-
-            if {empty? $existing} {
-                set! _task [put $_task inputs $val]
-            } else {
-                set! _task [put $_task inputs [List::push $existing $val]]
-            }
+            set! _task [put $_task inputs [_extend_list [get $_task inputs] $val]]
         }
 
         proc outputs {val} {
-            let existing [get $_task outputs]
-            if {empty? $existing} {
-                set! _task [put $_task outputs $val]
-            } else {
-                set! _task [put $_task outputs [List::push $existing $val]]
-            }
+            set! _task [put $_task outputs [_extend_list [get $_task outputs] $val]]
         }
 
         proc run {val} {

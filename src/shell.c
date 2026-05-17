@@ -13,11 +13,11 @@
 #define DEFAULT_SHELL_ARG "-c"
 #endif
 
-inline const char *dagwood_platform_shell(void) {
+const char *dagwood_platform_shell(void) {
   return DEFAULT_SHELL;
 }
 
-inline const char *dagwood_platform_shell_arg(void) {
+const char *dagwood_platform_shell_arg(void) {
   return DEFAULT_SHELL_ARG;
 }
 

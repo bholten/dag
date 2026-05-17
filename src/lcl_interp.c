@@ -331,11 +331,16 @@ static void glob_recursive(const char *base, const char *pattern,
     }
 
     char path[4096];
+    int written;
 
     if (base[0]) {
-      snprintf(path, sizeof(path), "%s/%s", base, entry->d_name);
+      written = snprintf(path, sizeof(path), "%s/%s", base, entry->d_name);
     } else {
-      snprintf(path, sizeof(path), "%s", entry->d_name);
+      written = snprintf(path, sizeof(path), "%s", entry->d_name);
+    }
+
+    if (written < 0 || (size_t)written >= sizeof(path)) {
+      continue;
     }
 
     struct stat st;
@@ -446,7 +451,13 @@ static int c_glob(lcl_interp *interp, int argc, lcl_value **argv,
 
             if (fnmatch(file_pattern, entry->d_name, 0) == 0) {
               char path[4096];
-              snprintf(path, sizeof(path), "%s/%s", base, entry->d_name);
+              int written =
+                  snprintf(path, sizeof(path), "%s/%s", base, entry->d_name);
+
+              if (written < 0 || (size_t)written >= sizeof(path)) {
+                continue;
+              }
+
               lcl_value *item = lcl_string_new(path);
 
               if (item) {
@@ -669,6 +680,7 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
   }
 
   lcl_result res = lcl_define(interp, qname, val);
+  lcl_ref_dec(val);
   free(qname);
 
   if (cli_val) {
@@ -676,7 +688,6 @@ static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
   }
 
   if (res != LCL_OK) {
-    lcl_ref_dec(val);
     return LCL_RC_ERR;
   }
 
@@ -721,7 +732,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
   }
 
   size_t script_len = strlen(script);
-  size_t out_capacity = script_len * 2;
+  size_t out_capacity = script_len * 2 + 16;
   char *out = malloc(out_capacity);
 
   if (!out) {
@@ -1252,6 +1263,7 @@ void interpreter_set_cli_arg(interpreter *interp, const char *name,
 
   if (val) {
     lcl_define(interp->interp, cli_key, val);
+    lcl_ref_dec(val);
   }
 }
 
@@ -1529,7 +1541,9 @@ interp_result interpreter_repl(interpreter *interp) {
       break;
     }
 
-    if (strncmp(line, "exit", 4) == 0) {
+    if (strncmp(line, "exit", 4) == 0 &&
+        (line[4] == '\0' || line[4] == '\n' || line[4] == '\r' ||
+         line[4] == ' ' || line[4] == '\t')) {
       break;
     }
 

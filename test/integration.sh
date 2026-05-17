@@ -603,6 +603,10 @@ test_cycle_detection() {
 
     # Should mention cycle in error output
     run_test_output_contains_any_exit "cycle error reported" "cycle" "$DAGWOOD" -C "$proj"
+
+    # Cycles should propagate through dry-run and dot output too (Issue #35)
+    run_test_fails "cyclic project fails under --dry-run" "$DAGWOOD" -C "$proj" -y
+    run_test_fails "cyclic project fails under --dot" "$DAGWOOD" -C "$proj" -d
 }
 
 # ============================================================================
@@ -886,6 +890,22 @@ test_task_mutation() {
     run_test_output_contains "task_extend sets always_run" \
         "always_run: true" \
         "$DAGWOOD" -C "$proj" -i mylib::build
+
+    # task_extend on a list attribute: should concatenate, not overwrite.
+    # mylib::package starts with depends_on (mylib::build mylib::test).
+    # Main Dag does: task_extend mylib::package { depends_on mylib::build }
+    # Expected: all three entries appear (Issue #37).
+    local package_output
+    package_output=$("$DAGWOOD" -C "$proj" -i mylib::package 2>&1)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$package_output" | grep -qE "depends_on:.*mylib::build.*mylib::test.*mylib::build"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "task_extend concatenates list attributes (#37)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "task_extend overwrote list instead of concatenating"
+        echo "    got: $(echo "$package_output" | grep depends_on)"
+    fi
 
     # project_override: description should be set
     run_test_output_contains "project_override changes project description" \

@@ -36,4 +36,16 @@ project mylib {
             echo "mylib deployed" > $mylib::BUILD_DIR/deploy.out
         }
     }
+
+    ;; Task with a non-empty depends_on list, used to exercise
+    ;; task_extend's list-concatenation path.
+    task package {
+        description "Package the library"
+        depends_on (mylib::build mylib::test)
+        outputs $mylib::BUILD_DIR/pkg.out
+        run {
+            mkdir -p $mylib::BUILD_DIR
+            echo "mylib packaged" > $mylib::BUILD_DIR/pkg.out
+        }
+    }
 }

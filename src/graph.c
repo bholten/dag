@@ -21,6 +21,10 @@ extern char **environ;
 dagwood_graph *dagwood_graph_new(t_map *task_registry) {
   dagwood_graph *g = calloc(1, sizeof(*g));
 
+  if (!g) {
+    return NULL;
+  }
+
   t_map *task_by_name = t_map_new();
 
   if (!task_by_name) {
@@ -435,7 +439,11 @@ bool dagwood_graph_dry_run(dagwood_graph *g) {
   }
 
   t_layers *layers = t_layers_new();
-  dag_build(g->tasks, layers);
+
+  if (!dag_build(g->tasks, layers)) {
+    t_layers_delete(layers);
+    return false;
+  }
 
   printf("Dagwood DAG Plan:\n");
 
@@ -494,11 +502,15 @@ bool dagwood_graph_to_dot(dagwood_graph *g) {
     }
   }
 
+  t_layers *layers = t_layers_new();
+
+  if (!dag_build(g->tasks, layers)) {
+    t_layers_delete(layers);
+    return false;
+  }
+
   printf("digraph \"dagwood\" {\n");
   printf("  rankdir=TB;\n");
-
-  t_layers *layers = t_layers_new();
-  dag_build(g->tasks, layers);
 
   for (size_t i = 0; i < t_layers_len(layers); i++) {
     t_arr *layer = t_layers_get(layers, i);
