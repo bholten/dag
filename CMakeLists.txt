@@ -114,6 +114,22 @@ if(DAGWOOD_BUILD_TESTS)
   if(DAGWOOD_ENABLE_ASAN)
     target_link_options(test_data_structures PRIVATE ${DAGWOOD_LINK_OPTIONS})
   endif()
+
+  enable_testing()
+
+  add_test(NAME unit COMMAND test_data_structures)
+
+  add_test(
+    NAME integration
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/integration.sh
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+
+  # Point the integration suite at this build's binary so ctest picks up
+  # whichever flavor (regular, ASan, etc.) is configured here.
+  set_tests_properties(integration PROPERTIES
+    ENVIRONMENT "DAGWOOD=$<TARGET_FILE:dagwood>"
+  )
 endif()
 
 install(TARGETS dagwood RUNTIME DESTINATION bin)
