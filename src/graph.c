@@ -180,33 +180,10 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
     return true;
   }
 
+  /* Side-effect tasks (no outputs) always run. With no outputs there's
+   * nothing to compare mtimes against, and the layer-order execution
+   * guarantees deps have already run by the time we get here. */
   if (s_arr_len(task->outputs) == 0) {
-    if (s_arr_len(task->depends_on) == 0) {
-      fprintf(stderr, "[dagwood] [%s] stale - no outputs (side-effect task)\n",
-              task->id);
-      return true;
-    }
-
-    for (size_t i = 0; i < s_arr_len(task->depends_on); i++) {
-      const char *dep_name = s_arr_get(task->depends_on, i);
-      if (!dep_name) {
-        continue;
-      }
-
-      dagwood_task *dep = t_map_get(g->task_by_name, dep_name);
-
-      if (!dep) {
-        continue;
-      }
-
-      if (task_stale(g, dep)) {
-        ts_map_set(g->memo, task->id, TASK_STALE);
-        fprintf(stderr, "[dagwood] [%s] stale - depends_on task %s stale\n",
-                task->id, dep->id);
-        return true;
-      }
-    }
-
     ts_map_set(g->memo, task->id, TASK_STALE);
     fprintf(stderr, "[dagwood] [%s] stale - no outputs (side-effect task)\n",
             task->id);
