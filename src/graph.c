@@ -147,25 +147,25 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
   task_state memo_value = ts_map_get(g->memo, task->id);
 
   if (memo_value == TASK_CLEAN) {
-    printf("[dagwood] [%s] cache hit -> task not stale\n", task->id);
+    fprintf(stderr, "[dagwood] [%s] cache hit -> task not stale\n", task->id);
     return false;
   }
 
   if (memo_value == TASK_STALE) {
-    printf("[dagwood] [%s] cache hit -> task stale\n", task->id);
+    fprintf(stderr, "[dagwood] [%s] cache hit -> task stale\n", task->id);
     return true;
   }
 
   if (task->always_run) {
     ts_map_set(g->memo, task->id, TASK_STALE);
-    printf("[dagwood] [%s] stale - always_run = true\n", task->id);
+    fprintf(stderr, "[dagwood] [%s] stale - always_run = true\n", task->id);
     return true;
   }
 
   if (s_arr_len(task->outputs) == 0) {
     if (s_arr_len(task->depends_on) == 0) {
-      printf("[dagwood] [%s] stale - no outputs (side-effect task)\n",
-             task->id);
+      fprintf(stderr, "[dagwood] [%s] stale - no outputs (side-effect task)\n",
+              task->id);
       return true;
     }
 
@@ -183,14 +183,15 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
 
       if (task_stale(g, dep)) {
         ts_map_set(g->memo, task->id, TASK_STALE);
-        printf("[dagwood] [%s] stale - depends_on task %s stale\n", task->id,
-               dep->id);
+        fprintf(stderr, "[dagwood] [%s] stale - depends_on task %s stale\n",
+                task->id, dep->id);
         return true;
       }
     }
 
     ts_map_set(g->memo, task->id, TASK_STALE);
-    printf("[dagwood] [%s] stale - no outputs (side-effect task)\n", task->id);
+    fprintf(stderr, "[dagwood] [%s] stale - no outputs (side-effect task)\n",
+            task->id);
     return true;
   }
 
@@ -202,15 +203,15 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
 
       if (stat(file_out, &file_out_info) != 0) {
         ts_map_set(g->memo, task->id, TASK_STALE);
-        printf("[dagwood] [%s] stale - output missing: %s\n", task->id,
-               file_out);
+        fprintf(stderr, "[dagwood] [%s] stale - output missing: %s\n", task->id,
+                file_out);
         return true;
       }
     }
 
     ts_map_set(g->memo, task->id, TASK_CLEAN);
-    printf("[dagwood] [%s] clean - outputs exist, no inputs to compare\n",
-           task->id);
+    fprintf(stderr, "[dagwood] [%s] clean - outputs exist, no inputs to compare\n",
+            task->id);
     return false;
   }
 
@@ -230,21 +231,21 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
 
           if (m_in > m_out) {
             ts_map_set(g->memo, task->id, TASK_STALE);
-            printf("[dagwood] [%s] stale - mtime calc: %s > %s\n", task->id,
-                   file_in, file_out);
+            fprintf(stderr, "[dagwood] [%s] stale - mtime calc: %s > %s\n",
+                    task->id, file_in, file_out);
             return true;
           }
         } else {
           ts_map_set(g->memo, task->id, TASK_STALE);
-          printf("[dagwood] [%s] stale - output file missing: %s\n", task->id,
-                 file_out);
+          fprintf(stderr, "[dagwood] [%s] stale - output file missing: %s\n",
+                  task->id, file_out);
           return true;
         }
       }
     } else {
       ts_map_set(g->memo, task->id, TASK_STALE);
-      printf("[dagwood] [%s] stale - input file missing: %s\n", task->id,
-             file_in);
+      fprintf(stderr, "[dagwood] [%s] stale - input file missing: %s\n",
+              task->id, file_in);
       return true;
     }
   }
@@ -276,12 +277,12 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     dagwood_task *t = t_arr_get(layer, i);
 
     if (!task_stale(g, t)) {
-      fprintf(stdout, "[dagwood] [%s] task not stale\n", t->id);
+      fprintf(stderr, "[dagwood] [%s] task not stale\n", t->id);
       pids[i] = -1;
       continue;
     }
 
-    fprintf(stdout, "[dagwood] [%s] spawning task number %zu\n", t->id, i);
+    fprintf(stderr, "[dagwood] [%s] spawning task number %zu\n", t->id, i);
 
     if (!t->shell || !t->shell_arg) {
       fprintf(stderr, "[dagwood] [%s] missing shell or shell_arg\n", t->id);
@@ -301,7 +302,7 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, STDERR_FILENO);
 
     if (t->wd != NULL) {
-      printf("[dagwood] [%s] working directory: %s\n", t->id, t->wd);
+      fprintf(stderr, "[dagwood] [%s] working directory: %s\n", t->id, t->wd);
       dagwood_spawn_addchdir(&actions, t->wd);
     }
 
@@ -315,7 +316,7 @@ static bool run_layer(dagwood_graph *g, t_arr *layer) {
     posix_spawnattr_destroy(&attr);
 
     if (spawn_status == 0) {
-      printf("[dagwood] [%s] spawned\n", t->id);
+      fprintf(stderr, "[dagwood] [%s] spawned\n", t->id);
       pids[i] = pid;
     } else {
       fprintf(stderr, "[dagwood] [%s] spawn failed\n", t->id);
@@ -387,7 +388,7 @@ bool dagwood_graph_execute_task(dagwood_graph *g, const char *task_name) {
 
   for (size_t i = 0; i < t_layers_len(layers); i++) {
     t_arr *layer = t_layers_get(layers, i);
-    printf("[dagwood] executing layer %zu\n", i);
+    fprintf(stderr, "[dagwood] executing layer %zu\n", i);
 
     if (!run_layer(g, layer)) {
       fprintf(stderr, "[dagwood] failed on layer %zu\n", i);
@@ -418,7 +419,7 @@ bool dagwood_graph_execute(dagwood_graph *g) {
 
   for (size_t i = 0; i < t_layers_len(layers); i++) {
     t_arr *layer = t_layers_get(layers, i);
-    printf("[dagwood] executing layer %zu\n", i);
+    fprintf(stderr, "[dagwood] executing layer %zu\n", i);
 
     if (!run_layer(g, layer)) {
       fprintf(stderr, "[dagwood] failed on layer %zu\n", i);
@@ -460,7 +461,6 @@ bool dagwood_graph_dry_run(dagwood_graph *g) {
       s_arr *deps = t->depends_on;
       s_arr *inputs = t->inputs;
       s_arr *outputs = t->outputs;
-      const char *run = t->run;
 
       if (deps != NULL && s_arr_len(deps) > 0) {
         printf("    --  Depends On:\n");

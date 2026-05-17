@@ -255,6 +255,49 @@ test_task_execution() {
     run_test "step_2 created s2/build/1.out" test -f "$proj/s2/build/1.out"
 }
 
+test_output_channels() {
+    log_section "Output Channels (stdout/stderr split, #45)"
+
+    local proj="$TEST_PROJECTS/simple-project"
+    rm -rf "$proj/s1" "$proj/s2"
+
+    # Run a task and capture stdout and stderr separately.
+    local stdout_capture stderr_capture
+    stdout_capture=$("$DAGWOOD" -C "$proj" simple_project::step_1 2>/dev/null)
+    stderr_capture=$("$DAGWOOD" -C "$proj" simple_project::step_1 2>&1 1>/dev/null)
+
+    # Dagwood's own chatter must not appear on stdout.
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$stdout_capture" | grep -qF "[dagwood]"; then
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "stdout should not contain [dagwood] chatter"
+        echo "    got: $stdout_capture"
+    else
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "stdout free of [dagwood] chatter during run"
+    fi
+
+    # The chatter must be on stderr.
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$stderr_capture" | grep -qF "[dagwood]"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "stderr carries [dagwood] chatter during run"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "stderr missing [dagwood] chatter"
+    fi
+
+    # Structured outputs must still go to stdout.
+    run_test_output_contains "--dry-run stays on stdout" "Dagwood DAG Plan" \
+        bash -c "'$DAGWOOD' -C '$proj' -y 2>/dev/null"
+    run_test_output_contains "--dot stays on stdout" "digraph" \
+        bash -c "'$DAGWOOD' -C '$proj' -d 2>/dev/null"
+    run_test_output_contains "--list stays on stdout" "Tasks:" \
+        bash -c "'$DAGWOOD' -C '$proj' -l 2>/dev/null"
+    run_test_output_contains "--inspect stays on stdout" "step_1" \
+        bash -c "'$DAGWOOD' -C '$proj' -i simple_project::step_1 2>/dev/null"
+}
+
 test_individual_task() {
     log_section "Individual Task Execution"
 
@@ -963,6 +1006,7 @@ main() {
     test_cli_dot
     test_cli_dry_run
     test_task_execution
+    test_output_channels
     test_individual_task
     test_dependency_chain
     test_staleness
