@@ -241,8 +241,26 @@ static int cmd_inspect(const char *file, const char *task_name) {
   return r == INTERP_OK ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-static int cmd_repl(void) {
+static int cmd_repl(const char *file) {
   interpreter *interp = interpreter_new();
+
+  if (!interp) {
+    return EXIT_FAILURE;
+  }
+
+  for (int i = 0; i < g_cli_argc; i++) {
+    interpreter_set_cli_arg(interp, g_cli_args[i].name, g_cli_args[i].value);
+  }
+
+  /* Try to load the Dag file. Failure is non-fatal in REPL mode —
+   * users may want the REPL exactly because their Dag is broken or
+   * absent. The error from interpreter_task_registry already prints
+   * to stderr; we just note that the REPL is starting anyway. */
+  if (!interpreter_task_registry(interp, file)) {
+    fprintf(stderr,
+            "[dagwood] REPL: starting without a loaded project\n");
+  }
+
   interpreter_repl(interp);
   interpreter_delete(interp);
   return EXIT_SUCCESS;
@@ -438,7 +456,7 @@ int main(int argc, char **argv) {
     result = cmd_inspect(file, target);
     free_cli_args();
     return result;
-  case MODE_REPL: free_cli_args(); return cmd_repl();
+  case MODE_REPL: result = cmd_repl(file); free_cli_args(); return result;
   case MODE_RUN: break;
   }
 

@@ -1039,6 +1039,50 @@ test_memo_collision() {
 }
 
 # ============================================================================
+# REPL (Issue #46)
+# ============================================================================
+
+test_repl() {
+    log_section "REPL (Issue #46)"
+
+    local proj="$TEST_PROJECTS/simple-project"
+    local args_proj="$TEST_PROJECTS/args-test"
+
+    # REPL exits cleanly on "exit" input.
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "exit" | "$DAGWOOD" -C "$proj" -r >/dev/null 2>&1; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "REPL exits cleanly on 'exit'"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "REPL did not exit cleanly"
+    fi
+
+    # REPL with a loaded Dag file can read project-scoped variables.
+    run_test_output_contains "REPL evaluates loaded project variable" \
+        "s1/build" \
+        bash -c "printf 'puts \$simple_project::S1_BUILD_DIR\nexit\n' | '$DAGWOOD' -C '$proj' -r 2>/dev/null"
+
+    # REPL can introspect loaded tasks via task_get.
+    run_test_output_contains "REPL can task_get on loaded project" \
+        "description {Step 1 Test" \
+        bash -c "printf 'puts [task_get simple_project::step_1]\nexit\n' | '$DAGWOOD' -C '$proj' -r 2>/dev/null"
+
+    # CLI args reach the REPL.
+    run_test_output_contains "REPL receives CLI arg override" \
+        "release" \
+        bash -c "printf 'puts \$args_test::BUILD_TYPE\nexit\n' | '$DAGWOOD' -C '$args_proj' BUILD_TYPE=release -r 2>/dev/null"
+
+    # Missing Dag file: REPL warns but still starts.
+    local nodag_tmp
+    nodag_tmp=$(mktemp -d)
+    run_test_output_contains_any_exit "REPL warns when Dag file missing" \
+        "starting without a loaded project" \
+        bash -c "echo exit | '$DAGWOOD' -C '$nodag_tmp' -r"
+    rm -rf "$nodag_tmp"
+}
+
+# ============================================================================
 # Task Mutation
 # ============================================================================
 
@@ -1161,6 +1205,7 @@ main() {
     test_multi_project
     test_args
     test_memo_collision
+    test_repl
     test_task_mutation
 
     # Summary
