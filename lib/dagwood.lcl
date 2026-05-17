@@ -1,6 +1,7 @@
 ;; Dagwood DSL - LCL Implementation (Nested Design)
 ;; This file is loaded automatically by the Dagwood C runtime.
-;; The C side provides special forms: `project`, `import`
+;; The C side provides one special form: `project` (for body-eval gymnastics).
+;; Everything else, including `def`, `arg`, `import`, is pure Lcl.
 
 ;; Global registry - initialize only once
 ;; catch returns 1 on error (not initialized), 0 on success (already initialized)
@@ -13,6 +14,36 @@ if [== $_dagwood_needs_init 1] {
         var primary ()
         var current_project ()
     }
+}
+
+;; ============================================================================
+;; Project-scoped variable definition (DSL keyword)
+;; ============================================================================
+
+;; def name value -- bind `name` into the current project's namespace.
+;; Errors if used outside a project block. Silent overwrite on redefinition.
+proc def {name value} {
+    let proj $dagwood::current_project
+    if [empty? $proj] {
+        error "def: must be used inside a project block"
+    }
+    Ns::set [getvar $proj] $name $value
+    return $value
+}
+
+;; arg name default -- like def, but resolves CLI override before falling
+;; back to the supplied default. CLI args are stored by interpreter_set_cli_arg
+;; under ::__dagwood_cli_args::<name>.
+proc arg {name default_val} {
+    let proj $dagwood::current_project
+    if [empty? $proj] {
+        error "arg: must be used inside a project block"
+    }
+    let cli_var "::__dagwood_cli_args::${name}"
+    let cli_set [catch { getvar $cli_var } _]
+    let final [if [== $cli_set 0] { getvar $cli_var } { $default_val }]
+    Ns::set [getvar $proj] $name $final
+    return $final
 }
 
 ;; Concatenate two values as lists. Scalars are promoted to single-element
@@ -199,16 +230,20 @@ proc _project {project_name body} {
 ;; ============================================================================
 
 macro import {path} {
-    let _before_import [len $dagwood::projects]
-    let _after_import [len $dagwood::projects]
-    let _imported_name [gensym]
+    ;; Gensym unique names per expansion so multiple imports in the same
+    ;; file don't collide on the let-binding names.
+    let _before_name [gensym]
+    let _after_name  [gensym]
+    let _new_name    [gensym]
 
     quasiquote {
-        load ,$path
+        let ,$_before_name [len $dagwood::projects]
+        require ,$path
+        let ,$_after_name [len $dagwood::projects]
 
-        if [> ,$_after_import ,$_before_import] {
-            let ,$_imported_name [get $dagwood::projects [- ,$_after_import 1]]
-            set! dagwood::imports [put $dagwood::imports ,$_imported_name ,$path]
+        if [> $,$_after_name $,$_before_name] {
+            let ,$_new_name [get $dagwood::projects [- $,$_after_name 1]]
+            set! dagwood::imports [put $dagwood::imports $,$_new_name ,$path]
         }
     }
 }

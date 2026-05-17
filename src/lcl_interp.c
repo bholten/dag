@@ -11,16 +11,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* Dagwood embeds a single Lcl interpreter per process. Two pieces of
- * context live as file-scope globals because C extension procs
- * (`def`, `arg`) don't receive any host pointer from Lcl:
+/* Dagwood embeds a single Lcl interpreter per process. Only one piece
+ * of state genuinely needs to live as a file-scope global:
  *
- *   current_project — the project name whose body is being evaluated.
- *                     C procs read this to know which namespace to
- *                     write into. NULL outside any `project { ... }`.
- *   active          — singleton guard, set in interpreter_new and
- *                     cleared in interpreter_delete. The assert in
- *                     interpreter_new makes the constraint loud.
+ *   active — singleton guard, set in interpreter_new and cleared in
+ *            interpreter_delete. The assert in interpreter_new makes
+ *            the constraint loud.
+ *
+ * The currently-executing project name is tracked entirely on the Lcl
+ * side via $dagwood::current_project — maintained by `s_project` and
+ * read by the pure-Lcl `def` and `arg` procs in lib/dagwood.lcl.
  */
 
 /* clang-format off */
@@ -39,7 +39,6 @@ static char *strdup_safe(const char *s);
 static char *make_qualified_name(const char *project, const char *name);
 
 static struct {
-  const char *current_project;
   bool active;
 } g_ctx;
 
@@ -111,8 +110,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     return LCL_RC_ERR;
   }
 
-  const char *saved_project = g_ctx.current_project;
-  g_ctx.current_project = name;
   lcl_value *result = NULL;
   lcl_value *call_args[2] = {name_val, body_val};
   rc = lcl_call_proc(interp, project_proc, 2, call_args, &result);
@@ -127,7 +124,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
       lcl_ref_dec(result);
     }
 
-    g_ctx.current_project = saved_project;
     free(name);
     return LCL_RC_ERR;
   }
@@ -149,7 +145,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
     }
 
     lcl_ref_dec(result);
-    g_ctx.current_project = saved_project;
     free(name);
     return LCL_RC_ERR;
   }
@@ -169,7 +164,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
       lcl_ref_dec(setup_code);
       lcl_ref_dec(body_code);
       lcl_ref_dec(result);
-      g_ctx.current_project = saved_project;
       free(name);
       return LCL_RC_ERR;
     }
@@ -201,7 +195,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
       lcl_ref_dec(setup_code);
       lcl_ref_dec(body_code);
       lcl_ref_dec(result);
-      g_ctx.current_project = saved_project;
       free(name);
       return LCL_RC_ERR;
     }
@@ -211,7 +204,6 @@ static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
   lcl_ref_dec(setup_code);
   lcl_ref_dec(body_code);
   lcl_ref_dec(result);
-  g_ctx.current_project = saved_project;
 
   *out = lcl_string_new(name);
   free(name);
@@ -562,139 +554,10 @@ static int c_file(lcl_interp *interp, int argc, lcl_value **argv,
   return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
-static int c_let_var(lcl_interp *interp, int argc, lcl_value **argv,
-                     lcl_value **out) {
-  if (argc != 2) {
-    fprintf(stderr, "[dagwood] def requires 2 arguments\n");
-    return LCL_RC_ERR;
-  }
-
-  if (!g_ctx.current_project) {
-    fprintf(stderr, "[dagwood] def: no project declared\n");
-    return LCL_RC_ERR;
-  }
-
-  const char *name = lcl_value_to_string(argv[0]);
-  lcl_value *value = argv[1];
-  lcl_value *proj_ns = NULL;
-
-  if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
-    lcl_ref_inc(value);
-    lcl_ns_def(proj_ns, name, value);
-    lcl_ref_dec(proj_ns);
-    lcl_ref_inc(value);
-    *out = value;
-    return LCL_RC_OK;
-  }
-
-  char *qname = make_qualified_name(g_ctx.current_project, name);
-
-  if (!qname) {
-    return LCL_RC_ERR;
-  }
-
-  lcl_ref_inc(value);
-  lcl_result res = lcl_define(interp, qname, value);
-  free(qname);
-
-  if (res != LCL_OK) {
-    lcl_ref_dec(value);
-    return LCL_RC_ERR;
-  }
-
-  *out = value;
-  return LCL_RC_OK;
-}
-
+/* CLI args are stored at ::__dagwood_cli_args::<name> by
+ * interpreter_set_cli_arg below. The Lcl-side `arg` proc (in
+ * lib/dagwood.lcl) reads them via getvar. */
 #define CLI_ARG_PREFIX "::__dagwood_cli_args::"
-
-static int c_arg(lcl_interp *interp, int argc, lcl_value **argv,
-                 lcl_value **out) {
-  if (argc != 2) {
-    fprintf(stderr, "[dagwood] arg requires 2 arguments (name and default)\n");
-    return LCL_RC_ERR;
-  }
-
-  if (!g_ctx.current_project) {
-    fprintf(stderr, "[dagwood] arg: no project declared\n");
-    return LCL_RC_ERR;
-  }
-
-  const char *name = lcl_value_to_string(argv[0]);
-  const char *default_val = lcl_value_to_string(argv[1]);
-
-  char cli_key[256];
-  snprintf(cli_key, sizeof(cli_key), CLI_ARG_PREFIX "%s", name);
-
-  lcl_value *cli_val = NULL;
-  const char *final_value = default_val;
-
-  if (lcl_get(interp, cli_key, &cli_val) == LCL_OK && cli_val) {
-    final_value = lcl_value_to_string(cli_val);
-  }
-
-  lcl_value *proj_ns = NULL;
-
-  if (lcl_get(interp, g_ctx.current_project, &proj_ns) == LCL_OK && proj_ns) {
-    lcl_value *val = lcl_string_new(final_value);
-
-    if (!val) {
-      lcl_ref_dec(proj_ns);
-
-      if (cli_val) {
-        lcl_ref_dec(cli_val);
-      }
-
-      return LCL_RC_ERR;
-    }
-
-    lcl_ns_def(proj_ns, name, val);
-    lcl_ref_dec(proj_ns);
-
-    if (cli_val) {
-      lcl_ref_dec(cli_val);
-    }
-
-    *out = lcl_string_new(final_value);
-    return *out ? LCL_RC_OK : LCL_RC_ERR;
-  }
-
-  char *qname = make_qualified_name(g_ctx.current_project, name);
-
-  if (!qname) {
-    if (cli_val) {
-      lcl_ref_dec(cli_val);
-    }
-
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *val = lcl_string_new(final_value);
-  if (!val) {
-    free(qname);
-
-    if (cli_val) {
-      lcl_ref_dec(cli_val);
-    }
-
-    return LCL_RC_ERR;
-  }
-
-  lcl_result res = lcl_define(interp, qname, val);
-  lcl_ref_dec(val);
-  free(qname);
-
-  if (cli_val) {
-    lcl_ref_dec(cli_val);
-  }
-
-  if (res != LCL_OK) {
-    return LCL_RC_ERR;
-  }
-
-  *out = lcl_string_new(final_value);
-  return *out ? LCL_RC_OK : LCL_RC_ERR;
-}
 
 static char *extract_dict_string(lcl_value *dict, const char *key) {
   lcl_value *val = NULL;
@@ -1181,10 +1044,6 @@ static void register_dagwood_commands(lcl_interp *interp) {
 
   /* DSL special forms - these call the LCL-based DSL and eval the result */
   lcl_register_spec(interp, "project", s_project);
-
-  /* Additional commands for project-scoped variables and CLI args */
-  lcl_register_proc(interp, "def", c_let_var);
-  lcl_register_proc(interp, "arg", c_arg);
 }
 
 interpreter *interpreter_new(void) {
@@ -1234,7 +1093,6 @@ interpreter *interpreter_new(void) {
   lcl_register_core(w->interp);
   lcl_register_io(w->interp);
 
-  g_ctx.current_project = NULL;
   g_ctx.active = true;
 
   register_dagwood_commands(w->interp);
@@ -1310,7 +1168,6 @@ void interpreter_delete(interpreter *interp) {
   lcl_interp_free(interp->interp);
   free(interp);
 
-  g_ctx.current_project = NULL;
   g_ctx.active = false;
 }
 
@@ -1321,10 +1178,15 @@ const char *interpreter_get_error(interpreter *interp) {
 
   const char *file = lcl_interp_error_file(interp->interp);
   int line = lcl_interp_error_line(interp->interp);
+  const char *msg = lcl_interp_error_msg(interp->interp);
 
   static char error_buf[512];
 
-  if (file) {
+  if (file && msg) {
+    snprintf(error_buf, sizeof(error_buf), "%s (at %s:%d)", msg, file, line);
+  } else if (msg) {
+    snprintf(error_buf, sizeof(error_buf), "%s (at line %d)", msg, line);
+  } else if (file) {
     snprintf(error_buf, sizeof(error_buf), "Error at %s:%d", file, line);
   } else {
     snprintf(error_buf, sizeof(error_buf), "Error at line %d", line);

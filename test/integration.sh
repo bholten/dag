@@ -964,6 +964,29 @@ test_multi_project() {
     rm -rf "$proj/build" "$proj/task_1" "$proj/task_2" "$proj/task_3"
 }
 
+test_import_tracking() {
+    log_section "Import Tracking (\$dagwood::imports)"
+
+    local proj="$TEST_PROJECTS/multi-project"
+    local out
+
+    # Each imported project should appear in $dagwood::imports as a
+    # project_name -> path mapping (Phase A+B import macro fix).
+    out=$(printf 'puts $dagwood::imports\nexit\n' \
+          | "$DAGWOOD" -C "$proj" -r 2>/dev/null)
+
+    for p in project_1 project_2 project_3; do
+        TESTS_RUN=$((TESTS_RUN + 1))
+        if echo "$out" | grep -qF "$p"; then
+            TESTS_PASSED=$((TESTS_PASSED + 1))
+            log_pass "import tracked in \$dagwood::imports: $p"
+        else
+            TESTS_FAILED=$((TESTS_FAILED + 1))
+            log_fail "$p missing from \$dagwood::imports"
+        fi
+    done
+}
+
 # ============================================================================
 # Args Tests (Issue #25)
 # ============================================================================
@@ -1203,6 +1226,7 @@ main() {
     test_run_subcommand
     test_custom_shell
     test_multi_project
+    test_import_tracking
     test_args
     test_memo_collision
     test_repl
