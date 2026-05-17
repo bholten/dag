@@ -11,6 +11,18 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* Dagwood embeds a single Lcl interpreter per process. Two pieces of
+ * context live as file-scope globals because C extension procs
+ * (`def`, `arg`) don't receive any host pointer from Lcl:
+ *
+ *   current_project — the project name whose body is being evaluated.
+ *                     C procs read this to know which namespace to
+ *                     write into. NULL outside any `project { ... }`.
+ *   active          — singleton guard, set in interpreter_new and
+ *                     cleared in interpreter_delete. The assert in
+ *                     interpreter_new makes the constraint loud.
+ */
+
 /* clang-format off */
 /* lcl.h must be included before lcl-io (or any libraries)
  * Turn clang-format off for being aggressive */
@@ -28,29 +40,18 @@ static char *make_qualified_name(const char *project, const char *name);
 
 static struct {
   const char *current_project;
-  dagwood_project *project;
-  p_map *project_registry;
-  t_map *task_registry;
-  t_map *command_registry;
-  lcl_interp *interp;
-  char *cwd;
-  bool dsl_loaded;
+  bool active;
 } g_ctx;
 
 static const lcl_embedded_lib dagwood_lib = {"lib/dagwood.lcl", lib_dagwood_lcl,
                                              sizeof(lib_dagwood_lcl)};
 
 static bool load_embedded_dsl(lcl_interp *interp) {
-  if (g_ctx.dsl_loaded) {
-    return true;
-  }
-
   if (lcl_register_embedded_lib(interp, &dagwood_lib) != 0) {
     fprintf(stderr, "Error: failed to load dagwood library\n");
     return false;
   }
 
-  g_ctx.dsl_loaded = true;
   return true;
 }
 
@@ -907,7 +908,7 @@ static void extract_string_list(lcl_value *val, s_arr **arr) {
   }
 }
 
-static dagwood_task *extract_task(const char *project_name,
+static dagwood_task *extract_task(lcl_interp *interp, const char *project_name,
                                   const char *task_name, lcl_value *task_dict,
                                   dagwood_project *project) {
   dagwood_task *task = dagwood_task_new();
@@ -923,7 +924,7 @@ static dagwood_task *extract_task(const char *project_name,
   free((void *)task->description);
   task->description = extract_dict_string(task_dict, "description");
   bool run_error = false;
-  char *run_script = extract_run_script(g_ctx.interp, task_dict, &run_error);
+  char *run_script = extract_run_script(interp, task_dict, &run_error);
 
   if (run_error) {
     fprintf(stderr, "[dagwood] failed to resolve variables in task '%s::%s'\n",
@@ -1081,7 +1082,7 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
           if (lcl_dict_get(tasks_dict, task_name, &task_dict) == LCL_OK &&
               task_dict) {
             dagwood_task *task =
-                extract_task(project_name, task_name, task_dict, project);
+                extract_task(interp, project_name, task_name, task_dict, project);
 
             if (!task) {
               lcl_ref_dec(task_dict);
@@ -1136,7 +1137,7 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
           if (lcl_dict_get(commands_dict, cmd_name, &cmd_dict) == LCL_OK &&
               cmd_dict) {
             dagwood_task *cmd =
-                extract_task(project_name, cmd_name, cmd_dict, project);
+                extract_task(interp, project_name, cmd_name, cmd_dict, project);
 
             if (!cmd) {
               lcl_ref_dec(cmd_dict);
@@ -1187,6 +1188,10 @@ static void register_dagwood_commands(lcl_interp *interp) {
 }
 
 interpreter *interpreter_new(void) {
+  assert(!g_ctx.active &&
+         "interpreter_new called while another interpreter is active; "
+         "Dagwood embeds at most one Lcl interpreter per process");
+
   interpreter *w = calloc(1, sizeof(*w));
   if (!w) {
     return NULL;
@@ -1229,12 +1234,8 @@ interpreter *interpreter_new(void) {
   lcl_register_core(w->interp);
   lcl_register_io(w->interp);
 
-  g_ctx.project_registry = w->project_registry;
-  g_ctx.task_registry = w->task_registry;
-  g_ctx.command_registry = w->command_registry;
-  g_ctx.interp = w->interp;
   g_ctx.current_project = NULL;
-  g_ctx.project = NULL;
+  g_ctx.active = true;
 
   register_dagwood_commands(w->interp);
 
@@ -1244,6 +1245,7 @@ interpreter *interpreter_new(void) {
     p_map_delete(w->project_registry);
     lcl_interp_free(w->interp);
     free(w);
+    g_ctx.active = false;
     return NULL;
   }
 
@@ -1308,13 +1310,8 @@ void interpreter_delete(interpreter *interp) {
   lcl_interp_free(interp->interp);
   free(interp);
 
-  g_ctx.project_registry = NULL;
-  g_ctx.task_registry = NULL;
-  g_ctx.command_registry = NULL;
-  g_ctx.interp = NULL;
   g_ctx.current_project = NULL;
-  g_ctx.project = NULL;
-  g_ctx.dsl_loaded = false;
+  g_ctx.active = false;
 }
 
 const char *interpreter_get_error(interpreter *interp) {
