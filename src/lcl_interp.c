@@ -18,9 +18,9 @@
  *            interpreter_delete. The assert in interpreter_new makes
  *            the constraint loud.
  *
- * The currently-executing project name is tracked entirely on the Lcl
- * side via $dagwood::current_project — maintained by `s_project` and
- * read by the pure-Lcl `def` and `arg` procs in lib/dagwood.lcl.
+ * The whole DSL surface lives in lib/dagwood.lcl as pure Lcl —
+ * including `project`, which is a macro that tracks the active
+ * project via $dagwood::current_project.
  */
 
 /* clang-format off */
@@ -32,7 +32,7 @@
 
 #include "dagwood.h"
 #include "data.h"
-#include "generated/dagwood_dsl.h"
+#include "dagwood_dsl.h"
 #include "interpreter.h"
 
 static char *strdup_safe(const char *s);
@@ -52,163 +52,6 @@ static bool load_embedded_dsl(lcl_interp *interp) {
   }
 
   return true;
-}
-
-/*
- * Special form: project <name> { <body> }
- *
- * Calls _project with the name and body to set up the project namespace
- * and evaluate the body with task/command/etc procs in scope.
- */
-static int s_project(lcl_interp *interp, int argc, const lcl_word **args,
-                     lcl_value **out) {
-  if (argc != 2) {
-    fprintf(stderr, "[dagwood] project requires exactly 2 arguments: name and "
-                    "body\n");
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *name_val = NULL;
-  int rc = lcl_eval_word(interp, args[0], &name_val);
-
-  if (rc != LCL_RC_OK || !name_val) {
-    return LCL_RC_ERR;
-  }
-
-  const char *name_str = lcl_value_to_string(name_val);
-
-  if (!name_str || !name_str[0]) {
-    fprintf(stderr, "[dagwood] project name cannot be empty\n");
-    lcl_ref_dec(name_val);
-    return LCL_RC_ERR;
-  }
-
-  char *name = strdup_safe(name_str);
-
-  if (!name) {
-    lcl_ref_dec(name_val);
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *body_val = NULL;
-  rc = lcl_eval_word(interp, args[1], &body_val);
-
-  if (rc != LCL_RC_OK || !body_val) {
-    fprintf(stderr, "[dagwood] failed to evaluate project body\n");
-    lcl_ref_dec(name_val);
-    free(name);
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *project_proc = NULL;
-
-  if (lcl_get(interp, "_project", &project_proc) != LCL_OK || !project_proc) {
-    fprintf(stderr, "[dagwood] _project proc not found (DSL not loaded?)\n");
-    lcl_ref_dec(name_val);
-    lcl_ref_dec(body_val);
-    free(name);
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *result = NULL;
-  lcl_value *call_args[2] = {name_val, body_val};
-  rc = lcl_call_proc(interp, project_proc, 2, call_args, &result);
-  lcl_ref_dec(project_proc);
-  lcl_ref_dec(name_val);
-  lcl_ref_dec(body_val);
-
-  if (rc != LCL_RC_OK || !result) {
-    fprintf(stderr, "[dagwood] project '%s' initialization failed\n", name);
-
-    if (result) {
-      lcl_ref_dec(result);
-    }
-
-    free(name);
-    return LCL_RC_ERR;
-  }
-
-  lcl_value *setup_code = NULL;
-  lcl_value *body_code = NULL;
-
-  if (lcl_list_get(result, 0, &setup_code) != LCL_OK || !setup_code ||
-      lcl_list_get(result, 1, &body_code) != LCL_OK || !body_code) {
-    fprintf(stderr, "[dagwood] project '%s': invalid return from _project\n",
-            name);
-
-    if (setup_code) {
-      lcl_ref_dec(setup_code);
-    }
-
-    if (body_code) {
-      lcl_ref_dec(body_code);
-    }
-
-    lcl_ref_dec(result);
-    free(name);
-    return LCL_RC_ERR;
-  }
-
-  const char *setup_str = lcl_value_to_string(setup_code);
-
-  if (setup_str && setup_str[0]) {
-    lcl_value *eval_result = NULL;
-    rc = lcl_eval_string(interp, setup_str, &eval_result);
-
-    if (eval_result) {
-      lcl_ref_dec(eval_result);
-    }
-
-    if (rc != LCL_RC_OK) {
-      fprintf(stderr, "[dagwood] project '%s' setup failed\n", name);
-      lcl_ref_dec(setup_code);
-      lcl_ref_dec(body_code);
-      lcl_ref_dec(result);
-      free(name);
-      return LCL_RC_ERR;
-    }
-  }
-
-  char set_proj_cmd[512];
-  snprintf(set_proj_cmd, sizeof(set_proj_cmd),
-           "set! dagwood::current_project %s", name);
-  lcl_value *set_result = NULL;
-  lcl_eval_string(interp, set_proj_cmd, &set_result);
-
-  if (set_result) {
-    lcl_ref_dec(set_result);
-  }
-
-  const char *body_str = lcl_value_to_string(body_code);
-
-  if (body_str && body_str[0]) {
-    lcl_value *eval_result = NULL;
-    rc = lcl_eval_string(interp, body_str, &eval_result);
-
-    if (eval_result) {
-      lcl_ref_dec(eval_result);
-    }
-
-    if (rc != LCL_RC_OK) {
-      fprintf(stderr, "[dagwood] project '%s' body evaluation failed\n", name);
-      lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
-      lcl_ref_dec(setup_code);
-      lcl_ref_dec(body_code);
-      lcl_ref_dec(result);
-      free(name);
-      return LCL_RC_ERR;
-    }
-  }
-
-  lcl_eval_string(interp, "set! dagwood::current_project ()", NULL);
-  lcl_ref_dec(setup_code);
-  lcl_ref_dec(body_code);
-  lcl_ref_dec(result);
-
-  *out = lcl_string_new(name);
-  free(name);
-
-  return *out ? LCL_RC_OK : LCL_RC_ERR;
 }
 
 struct interpreter {
@@ -626,7 +469,7 @@ static char *substitute_namespace_vars(lcl_interp *interp, const char *script) {
         }
       }
 
-      size_t var_len = var_end - var_start;
+      size_t var_len = (size_t)(var_end - var_start);
       bool is_namespace_var = false;
 
       for (const char *c = var_start; c < var_end - 1; c++) {
@@ -1041,9 +884,6 @@ static void register_dagwood_commands(lcl_interp *interp) {
   lcl_register_proc(interp, "cd", c_cd);
   lcl_register_proc(interp, "glob", c_glob);
   lcl_register_proc(interp, "file", c_file);
-
-  /* DSL special forms - these call the LCL-based DSL and eval the result */
-  lcl_register_spec(interp, "project", s_project);
 }
 
 interpreter *interpreter_new(void) {

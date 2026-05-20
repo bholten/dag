@@ -1,3 +1,5 @@
-src/generated
 */build
 **/build
+build-asan/
+.cache/
+compile_commands.json

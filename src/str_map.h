@@ -13,6 +13,17 @@
  *
  * The .c file must include: <stdio.h>, <stdlib.h>, <string.h>
  * The header must include: <stdbool.h>, <stddef.h>
+ *
+ * Key ownership: the map strdup's the key on `_set` and free's it on
+ * `_delete` / overwrite. Callers MUST NOT pre-strdup the key — pass a
+ * borrowed `const char *` and the map will own its private copy. The
+ * map never returns its internal key buffer to callers, so callers
+ * also need not free anything they read back.
+ *
+ * Value ownership: the map stores the value bit-for-bit (e.g. raw
+ * pointer, integer, size_t). For pointer values the map does NOT take
+ * ownership — caller manages lifetime. Use a custom delete helper if
+ * the value needs cleanup on map deletion.
  */
 
 #define STR_MAP_INITIAL_CAP 16
