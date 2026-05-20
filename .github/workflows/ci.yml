@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select compiler
+        run: |
+          case "${{ matrix.compiler }}" in
+            gcc)   echo "CC=gcc"   >> "$GITHUB_ENV" ;;
+            clang) echo "CC=clang" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DDAGWOOD_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run tests (ctest)
+        working-directory: build
+        run: ctest --output-on-failure
+
+  check-all:
+    name: regular + ASan (check_all.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run check_all.sh
+        run: ./test/check_all.sh
+
+  install-verify:
+    name: install / run installed binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          cmake -S . -B build-install \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDAGWOOD_BUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build-install --parallel
+
+      - name: Install to temp prefix
+        run: cmake --install build-install --prefix "$RUNNER_TEMP/dagwood-install"
+
+      - name: Run installed binary against a scratch Dag
+        run: |
+          mkdir -p "$RUNNER_TEMP/dag-scratch"
+          cat > "$RUNNER_TEMP/dag-scratch/Dag" << 'EOF'
+          project hello {
+              task greet {
+                  run { echo "Hello from installed dag" }
+              }
+          }
+          EOF
+          "$RUNNER_TEMP/dagwood-install/bin/dag" --version
+          cd "$RUNNER_TEMP/dag-scratch"
+          "$RUNNER_TEMP/dagwood-install/bin/dag"

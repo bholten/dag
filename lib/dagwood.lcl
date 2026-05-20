@@ -1,7 +1,10 @@
 ;; Dagwood DSL - LCL Implementation (Nested Design)
 ;; This file is loaded automatically by the Dagwood C runtime.
-;; The C side provides one special form: `project` (for body-eval gymnastics).
-;; Everything else, including `def`, `arg`, `import`, is pure Lcl.
+;; The DSL is now fully implemented in Lcl. The C side registers a
+;; handful of stdlib helpers (`pwd`, `cd`, `glob`, `file`, ...) but
+;; the language surface (`project`, `task`, `command`, `import`,
+;; `def`, `arg`, `task_override`, `task_extend`, `task_disable`,
+;; `project_override`, `task_get`) is all defined here.
 
 ;; Global registry - initialize only once
 ;; catch returns 1 on error (not initialized), 0 on success (already initialized)
@@ -70,9 +73,22 @@ proc _split_qualified {qualified_name} {
 ;; Nested Project Implementation
 ;; ============================================================================
 
-;; The _project proc is called by the C special form with project name and body.
+;; `project` is a pure-Lcl macro. It calls the `_project` helper (below) to
+;; build setup_code + wrapped_body, then expands to a sequence that evals
+;; both pieces and tracks the current project via $dagwood::current_project.
+macro project {name body} {
+    quasiquote {
+        let _proj_result [_project ,$name {,$body}]
+        eval [get $_proj_result 0]
+        set! dagwood::current_project ,$name
+        eval [get $_proj_result 1]
+        set! dagwood::current_project ()
+    }
+}
+
+;; The _project proc is the code generator for the `project` macro above.
 ;; It returns a list: (setup_code wrapped_body) where:
-;;   - setup_code should be evaluated at TOP LEVEL to create namespace
+;;   - setup_code is evaluated at the project-call site to create the namespace
 ;;   - wrapped_body is the user's body wrapped in `namespace $project_name { ... }`
 ;;     so that bare `let X Y` / `var X Y` auto-scope to $project::X
 proc _project {project_name body} {

@@ -1,0 +1,33 @@
+/*
+ * Dagwood version macros and runtime accessor.
+ *
+ * This header is generated at configure time from PROJECT_VERSION in
+ * CMakeLists.txt. The macros are available for compile-time version
+ * checks; dagwood_version() returns the same string at runtime.
+ *
+ * Use:
+ *   #include "dagwood-version.h"
+ *
+ *   printf("%s\n", DAGWOOD_VERSION_STRING);
+ *
+ * Version policy: see VERSIONING.md at the repo root.
+ */
+
+#ifndef DAGWOOD_VERSION_H
+#define DAGWOOD_VERSION_H
+
+#define DAGWOOD_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define DAGWOOD_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define DAGWOOD_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define DAGWOOD_VERSION_STRING "@PROJECT_VERSION@"
+
+/*
+ * Single integer for #if comparisons.
+ *   MAJOR * 10000 + MINOR * 100 + PATCH
+ * e.g. 0.1.0 -> 100, 1.2.3 -> 10203.
+ * MINOR and PATCH are each clamped to 0..99 by convention.
+ */
+#define DAGWOOD_VERSION_NUMBER \
+    (DAGWOOD_VERSION_MAJOR * 10000 + DAGWOOD_VERSION_MINOR * 100 + DAGWOOD_VERSION_PATCH)
+
+#endif /* DAGWOOD_VERSION_H */

@@ -2,7 +2,7 @@
  * Dagwood CLI - A task runner with DAG-based dependency resolution
  *
  * Usage:
- *   dag                      Run whole project (default: ./Dagwood)
+ *   dag                      Run whole project (default: ./Dag)
  *   dag <task>               Run a specific task
  *   dag KEY=value <task>     Run task with build arguments
  *   dag run <task>           Run a specific task (alias for dag <task>)
@@ -20,11 +20,11 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "dagwood-version.h"
 #include "dagwood.h"
 #include "data.h"
 #include "interpreter.h"
 
-#define DAGWOOD_VERSION "0.1.0"
 #define DEFAULT_FILE "Dag"
 
 typedef struct {
@@ -65,7 +65,7 @@ static void show_help(void) {
   puts("");
   puts("Options:");
   puts("  -C, --directory DIR    Change to DIR before running");
-  puts("  -f, --file FILE        Use FILE instead of ./Dagwood");
+  puts("  -f, --file FILE        Use FILE instead of ./Dag");
   puts("  -l, --list             List all tasks");
   puts("  -d, --dot              Print DAG as Graphviz dot format");
   puts("  -y, --dry-run          Show execution order without running");
@@ -89,7 +89,7 @@ static void show_help(void) {
 // clang-format on
 
 static void show_version(void) {
-  puts(DAGWOOD_VERSION);
+  puts(DAGWOOD_VERSION_STRING);
 }
 
 /* ============================================================================

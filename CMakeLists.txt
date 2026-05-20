@@ -6,6 +6,13 @@ project(dagwood
   LANGUAGES C
 )
 
+set(DAGWOOD_VERSION_HEADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/dagwood-version.h.in"
+  "${DAGWOOD_VERSION_HEADER_DIR}/dagwood-version.h"
+  @ONLY
+)
+
 option(DAGWOOD_BUILD_TESTS "Build test executable" ON)
 option(DAGWOOD_ENABLE_ASAN "Enable AddressSanitizer (debug builds)" OFF)
 
@@ -23,7 +30,14 @@ set(LCL_BUILD_EXPECT_LIB ON CACHE BOOL "Build Lcl expect library" FORCE)
 set(LCL_BUILD_SH_LIB ON CACHE BOOL "Build Lcl sh library" FORCE)
 set(LCL_BUILD_MACRO_LIB ON CACHE BOOL "Build Lcl macro library" FORCE)
 
-add_subdirectory(submodules/lcl)
+include(FetchContent)
+FetchContent_Declare(
+  lcl
+  GIT_REPOSITORY https://github.com/bholten/lcl.git
+  GIT_TAG        c1ef73daa6a2a2dab8f36823fe9027527e274542
+  GIT_SHALLOW    FALSE
+)
+FetchContent_MakeAvailable(lcl)
 
 if(DAGWOOD_ENABLE_ASAN)
   list(APPEND DAGWOOD_COMPILE_OPTIONS -fsanitize=address,undefined -fno-omit-frame-pointer)
@@ -37,19 +51,16 @@ if(HAVE_SPAWN_ADDCHDIR_NP)
   list(APPEND DAGWOOD_COMPILE_OPTIONS -DHAVE_SPAWN_ADDCHDIR_NP)
 endif()
 
-set(DSL_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/lib/dagwood.lcl)
-set(DSL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/dagwood_dsl.h)
-file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(EmbedFile)
 
-add_custom_command(
-  OUTPUT ${DSL_HEADER}
-  COMMAND xxd -i lib/dagwood.lcl > ${DSL_HEADER}
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${DSL_SOURCE}
-  COMMENT "Generating embedded DSL header from lib/dagwood.lcl"
+set(DAGWOOD_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+dagwood_embed_file(
+  INPUT  lib/dagwood.lcl
+  OUTPUT "${DAGWOOD_GEN_DIR}/dagwood_dsl.h"
+  SYMBOL lib_dagwood_lcl
+  TARGET generate_dsl_header
 )
-
-add_custom_target(generate_dsl_header DEPENDS ${DSL_HEADER})
 
 set(DAGWOOD_SOURCES
   src/lcl_interp.c
@@ -74,8 +85,9 @@ target_compile_options(dagwood PRIVATE ${DAGWOOD_COMPILE_OPTIONS})
 
 target_include_directories(dagwood PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-io/include
+  ${DAGWOOD_GEN_DIR}
+  ${DAGWOOD_VERSION_HEADER_DIR}
+  ${lcl_SOURCE_DIR}/packages/lcl-io/include
 )
 
 target_link_libraries(dagwood PRIVATE lcl_static lcl_io)
