@@ -1,4 +1,4 @@
-;; Test that depends_on referencing a non-existent task causes a hard failure
+;; Test that depends-on referencing a non-existent task causes a hard failure
 
 project bad_depends_test {
     task step_1 {
@@ -10,7 +10,7 @@ project bad_depends_test {
 
     task step_2 {
         description "Depends on a task that does not exist"
-        depends_on bad_depends_test::step_1_typo
+        depends-on bad_depends_test::step_1_typo
         run {
             echo "step_2"
         }

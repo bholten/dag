@@ -1,19 +1,19 @@
 project project_2 {
     let BUILD_DIR build
-    let OUTPUT $project_2::BUILD_DIR/output.txt
+    let OUTPUT ${project_2::BUILD_DIR}/output.txt
 
     task build {
         description "Build project_2"
-        outputs $project_2::OUTPUT
+        outputs ${project_2::OUTPUT}
         run {
-            mkdir -p $project_2::BUILD_DIR
-            echo "project_2 built" > $project_2::OUTPUT
+            mkdir -p ${project_2::BUILD_DIR}
+            echo "project_2 built" > ${project_2::OUTPUT}
         }
     }
 
     command clean {
         run {
-            rm -rf $project_2::BUILD_DIR
+            rm -rf ${project_2::BUILD_DIR}
         }
     }
 }

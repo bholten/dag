@@ -3,38 +3,38 @@
 import lib/Dag
 
 ;; Override: replace mylib::test entirely
-task_override mylib::test {
+task-override mylib::test {
     description "Overridden test"
-    depends_on mylib::build
+    depends-on mylib::build
     run { echo "mylib tested (overridden)" }
 }
 
 ;; Extend: add an extra dependency to mylib::build
-task_extend mylib::build {
-    always_run true
+task-extend mylib::build {
+    always-run true
 }
 
 ;; Disable: remove mylib::deploy from the graph
-task_disable mylib::deploy
+task-disable mylib::deploy
 
 ;; Override project config
-project_override mylib {
+project-override mylib {
     shell /bin/sh
     description "Mutated library"
 }
 
 ;; Extend: append more deps to mylib::package, which already has
-;; depends_on (mylib::build mylib::test). Tests the list-concat path
+;; depends-on (mylib::build mylib::test). Tests the list-concat path
 ;; (Issue #37).
-task_extend mylib::package {
-    depends_on mylib::build
+task-extend mylib::package {
+    depends-on mylib::build
 }
 
 ;; Define our own project that depends on the mutated import
 project mutator {
     task integrate {
         description "Integration task"
-        depends_on mylib::test
+        depends-on mylib::test
         run { echo "integration done" }
     }
 }

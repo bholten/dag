@@ -8,33 +8,33 @@ project simple_project {
 
     task step_1 {
         description "Step 1 Test - make a bunch of output files"
-        outputs ($simple_project::S1_OUT_1
-                 $simple_project::S1_OUT_2
-                 $simple_project::S1_OUT_3)
+        outputs (${simple_project::S1_OUT_1}
+                 ${simple_project::S1_OUT_2}
+                 ${simple_project::S1_OUT_3})
         run {
             set -ex
-            mkdir -p $simple_project::S1_BUILD_DIR
-            touch $simple_project::S1_OUT_1 $simple_project::S1_OUT_2 $simple_project::S1_OUT_3
+            mkdir -p ${simple_project::S1_BUILD_DIR}
+            touch ${simple_project::S1_OUT_1} ${simple_project::S1_OUT_2} ${simple_project::S1_OUT_3}
         }
     }
 
     task step_2 {
         description "Step 2 Test - depend on outputs of another task"
-        inputs ($simple_project::S1_OUT_1
-                $simple_project::S1_OUT_2
-                $simple_project::S1_OUT_3)
-        outputs $simple_project::S2_OUT
+        inputs (${simple_project::S1_OUT_1}
+                ${simple_project::S1_OUT_2}
+                ${simple_project::S1_OUT_3})
+        outputs ${simple_project::S2_OUT}
         run {
             set -ex
             echo "Running step 2!"
-            mkdir -p $simple_project::S2_BUILD_DIR
-            touch $simple_project::S2_OUT
+            mkdir -p ${simple_project::S2_BUILD_DIR}
+            touch ${simple_project::S2_OUT}
         }
     }
 
     task step_3 {
         description "Step 3 - depends explicitly on Step 2"
-        depends_on simple_project::step_2
+        depends-on simple_project::step_2
         run {
             set -ex
             echo "Depending on Step 2!"
@@ -42,9 +42,9 @@ project simple_project {
     }
 
     task step_4 {
-        description "Step 4 - explicit depends_on + inputs are step 2's outputs"
-        depends_on simple_project::step_3
-        inputs $simple_project::S2_OUT
+        description "Step 4 - explicit depends-on + inputs are step 2's outputs"
+        depends-on simple_project::step_3
+        inputs ${simple_project::S2_OUT}
         run {
             set -ex
             echo "Final task!"
@@ -53,22 +53,22 @@ project simple_project {
 
     task step_5 {
         description "Step 5 - check all tasks were successful"
-        depends_on (simple_project::step_3 simple_project::step_4)
-        inputs ($simple_project::S1_OUT_1 $simple_project::S2_OUT)
+        depends-on (simple_project::step_3 simple_project::step_4)
+        inputs (${simple_project::S1_OUT_1} ${simple_project::S2_OUT})
         run {
             set -ex
             # Verify outputs from previous steps exist
-            test -e $simple_project::S1_OUT_1
-            test -e $simple_project::S1_OUT_2
-            test -e $simple_project::S1_OUT_3
-            test -e $simple_project::S2_OUT
+            test -e ${simple_project::S1_OUT_1}
+            test -e ${simple_project::S1_OUT_2}
+            test -e ${simple_project::S1_OUT_3}
+            test -e ${simple_project::S2_OUT}
             echo "All outputs verified!"
         }
     }
 
     command clean {
         run {
-            rm -rf $simple_project::S1_BUILD_DIR $simple_project::S2_BUILD_DIR
+            rm -rf ${simple_project::S1_BUILD_DIR} ${simple_project::S2_BUILD_DIR}
         }
     }
 }

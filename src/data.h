@@ -37,7 +37,6 @@ t_arr *t_layers_get(t_layers *layers, size_t index);
 t_arr *t_layers_pop(t_layers *layers);
 
 bool dag_build(t_arr *arr, t_layers *out);
-bool dag_build_from_task(const dagwood_task *task, t_layers *out);
 
 STR_MAP_DECL(t_map, dagwood_task *)
 

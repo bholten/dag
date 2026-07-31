@@ -8,14 +8,14 @@ project args_test {
     task show_args {
         description "Show the build arguments"
         run {
-            echo "BUILD_TYPE=$args_test::BUILD_TYPE CC=$args_test::CC"
+            echo "BUILD_TYPE=${args_test::BUILD_TYPE} CC=${args_test::CC}"
         }
     }
 
     task use_args {
         description "Use the arguments in a build command"
         run {
-            echo "Would run: $args_test::CC -O2 -DBUILD_TYPE=$args_test::BUILD_TYPE main.c"
+            echo "Would run: ${args_test::CC} -O2 -DBUILD_TYPE=${args_test::BUILD_TYPE} main.c"
         }
     }
 }

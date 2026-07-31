@@ -340,7 +340,7 @@ test_output_capture() {
     # `|| true` lets us inspect the output regardless of exit code.
     TESTS_RUN=$((TESTS_RUN + 1))
     local par_out
-    par_out=$("$DAGWOOD" -C "$proj" 2>/dev/null || true)
+    par_out=$("$DAGWOOD" -j 0 -C "$proj" 2>/dev/null || true)
     local a_lines b_lines c_lines
     a_lines=$(echo "$par_out" | grep -c '^\[capture::parallel_a\]')
     b_lines=$(echo "$par_out" | grep -c '^\[capture::parallel_b\]')
@@ -615,12 +615,12 @@ test_namespaces() {
         log_fail "task output reference not resolved in consumer inputs"
     fi
 
-    # --- Test 4: Explicit depends_on ---
-    run_test "explicit depends_on works" \
+    # --- Test 4: Explicit depends-on ---
+    run_test "explicit depends-on works" \
         "$DAGWOOD" -C "$proj" "ns_test::dependent_task"
 
-    # --- Test 5: Multiple depends_on ---
-    run_test "multiple depends_on works" \
+    # --- Test 5: Multiple depends-on ---
+    run_test "multiple depends-on works" \
         "$DAGWOOD" -C "$proj" "ns_test::multi_dep"
 
     # --- Test 6: Braced variable syntax ---
@@ -657,6 +657,41 @@ test_namespaces() {
         TESTS_FAILED=$((TESTS_FAILED + 1))
         log_fail "shell special variables not preserved"
     fi
+
+    # Guest ${...} without :: passes through and the shell expands it
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q "Guest braced: /"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "guest \${HOME} passes through to the shell"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "guest \${HOME} was not left for the shell"
+    fi
+
+    # Bare qualified refs pass through verbatim (foreign namespaces)
+    run_test_output_contains "bare foreign \$pkg::var passes through verbatim" \
+        'Foreign: $some_pkg::value' \
+        "$DAGWOOD" -C "$proj" "ns_test::mixed_content"
+
+    # Bare refs matching a registered project pass through too...
+    run_test_output_contains "bare project-prefixed ref passes through verbatim" \
+        'Warned: $ns_test::BUILD_DIR' \
+        "$DAGWOOD" -C "$proj" "ns_test::mixed_content"
+
+    # ...but trigger the forgot-the-braces lint on stderr
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -q 'warning.*bare \$ns_test::BUILD_DIR'; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "bare project-prefixed ref triggers braces warning"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "no warning for bare project-prefixed ref"
+    fi
+
+    # \${ escape yields a literal ${...} in the delivered script
+    run_test_output_contains "escaped \\\${...} yields literal text" \
+        'Escaped: ${ns_test::BUILD_DIR}' \
+        "$DAGWOOD" -C "$proj" "ns_test::mixed_content"
 
     # Test 8: Undefined variable handling - REMOVED
     # Undefined namespace vars are now a hard failure (Issue #26).
@@ -798,29 +833,51 @@ test_undefined_var() {
 
     local proj="$TEST_PROJECTS/undefined-var-test"
 
-    # A misspelled namespace variable should cause a hard failure
-    run_test_fails "undefined namespace var fails" "$DAGWOOD" -C "$proj"
+    # A misspelled variable in a splice should cause a hard failure
+    run_test_fails "undefined splice var fails" "$DAGWOOD" -C "$proj"
 
-    # Error message should mention the undefined variable
+    # Error message should mention the undefined splice
     run_test_output_contains_any_exit "error mentions undefined variable" \
-        "undefined namespace variable" "$DAGWOOD" -C "$proj"
+        "undefined variable in splice" "$DAGWOOD" -C "$proj"
 
     # Error message should include the variable name
     run_test_output_contains_any_exit "error shows variable name" \
         "BUILD_DIER" "$DAGWOOD" -C "$proj"
+
+    # A splice naming an unknown project also hard-fails, loudly, even
+    # for --list (it's a load-time error), and the message points at
+    # the escape.
+    local splice_proj="$TEST_PROJECTS/bad-splice-test"
+
+    run_test_fails "unknown-project splice fails at load" \
+        "$DAGWOOD" -C "$splice_proj" -l
+
+    run_test_output_contains_any_exit "error names the unknown project" \
+        "unknown project 'HOME'" "$DAGWOOD" -C "$splice_proj" -l
+
+    run_test_output_contains_any_exit "error suggests the escape" \
+        'use \${...} for literal text' "$DAGWOOD" -C "$splice_proj" -l
+
+    local bare_proj="$TEST_PROJECTS/bare-qualified-test"
+
+    run_test_fails "bare \$proj::VAR in expression position fails at load" \
+        "$DAGWOOD" -C "$bare_proj" -l
+
+    run_test_output_contains_any_exit "bare-qualified error names the braced spelling" \
+        'qualified substitutions require braces' "$DAGWOOD" -C "$bare_proj" -l
 }
 
 # ============================================================================
-# Bad depends_on Tests (Issue #27)
+# Bad depends-on Tests (Issue #27)
 # ============================================================================
 
 test_bad_depends_on() {
-    log_section "Unresolvable depends_on (hard failure)"
+    log_section "Unresolvable depends-on (hard failure)"
 
     local proj="$TEST_PROJECTS/bad-depends-test"
 
-    # A depends_on referencing a non-existent task should cause a hard failure
-    run_test_fails "unresolvable depends_on fails" "$DAGWOOD" -C "$proj"
+    # A depends-on referencing a non-existent task should cause a hard failure
+    run_test_fails "unresolvable depends-on fails" "$DAGWOOD" -C "$proj"
 
     # Error message should mention the missing dependency
     run_test_output_contains_any_exit "error mentions missing dependency" \
@@ -912,6 +969,76 @@ test_custom_shell() {
         TESTS_FAILED=$((TESTS_FAILED + 1))
         log_fail "custom shell not used (BASH_VERSION empty, likely running /bin/sh)"
     fi
+
+    # Task-level shell override: project shell is bash, task overrides
+    # to /bin/echo, which prints the marker (its shell-arg) verbatim.
+    # If the project shell ran the body instead, the marker never prints.
+    run_test_output_contains "task-level shell override beats project shell" \
+        "TASK_SHELL_MARKER" \
+        "$DAGWOOD" -C "$proj" "custom_shell_test::task_shell_override"
+
+    # Command-level shell override goes through the same path.
+    run_test_output_contains "command-level shell override beats project shell" \
+        "CMD_SHELL_MARKER" \
+        "$DAGWOOD" -C "$proj" "custom_shell_test::command_shell_override"
+
+    # Bare shell name (no path) must be resolved via PATH (posix_spawnp),
+    # and it must actually be bash (BASH_VERSION non-empty).
+    output=$("$DAGWOOD" -C "$proj" "custom_shell_test::bare_shell_name" 2>&1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$output" | grep -qE "BARE_SHELL_CHECK:.+"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        log_pass "bare shell name resolved via PATH (posix_spawnp)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        log_fail "bare shell name not resolved via PATH"
+    fi
+}
+
+# ============================================================================
+# Lcl-as-Shell Tests (per-task `shell lcl`)
+# ============================================================================
+
+test_lcl_shell() {
+    log_section "Lcl as Task Shell"
+
+    local proj="$TEST_PROJECTS/lcl-shell-test"
+
+    # This needs only the embedded interpreter (the Dag file itself uses
+    # posix::glob), so it runs regardless of whether the lcl CLI exists.
+    run_test "posix::glob usable in Dag file" \
+        "$DAGWOOD" -C "$proj" -l
+
+    if ! command -v lcl >/dev/null 2>&1; then
+        echo -e "  ${YELLOW}SKIP${RESET} lcl CLI not on PATH; skipping shell-lcl execution tests"
+        return 0
+    fi
+
+    rm -f "$proj/lcl_task.out"
+
+    run_test_output_contains "task run body evaluated by lcl CLI" \
+        "LCL_SHELL_OK" \
+        "$DAGWOOD" -C "$proj" "lcl_shell_test::lcl_task"
+
+    run_test "lcl run body wrote its output file" \
+        test -f "$proj/lcl_task.out"
+
+    run_test_output_contains "command run body uses posix::glob via lcl" \
+        "LCL_GLOB_COUNT:2" \
+        "$DAGWOOD" -C "$proj" "lcl_shell_test::lcl_command"
+
+    # ${a::b} is both Dagwood's splice and Lcl's own qualified-ref
+    # syntax; Dagwood claims it at load, \${ hands it to the guest lcl.
+    run_test_output_contains "lcl run body: Dagwood splice resolved before lcl" \
+        "SPLICED:SPLICE_OK" \
+        "$DAGWOOD" -C "$proj" "lcl_shell_test::lcl_splice"
+
+    run_test_output_contains "lcl run body: escaped \\\${a::b} resolved by guest lcl" \
+        "GUEST:GUEST_OK" \
+        "$DAGWOOD" -C "$proj" "lcl_shell_test::lcl_splice"
+
+    rm -f "$proj/lcl_task.out"
 }
 
 # ============================================================================
@@ -965,24 +1092,24 @@ test_multi_project() {
 }
 
 test_import_tracking() {
-    log_section "Import Tracking (\$dagwood::imports)"
+    log_section "Import Tracking (\${dagwood::imports})"
 
     local proj="$TEST_PROJECTS/multi-project"
     local out
 
-    # Each imported project should appear in $dagwood::imports as a
+    # Each imported project should appear in ${dagwood::imports} as a
     # project_name -> path mapping (Phase A+B import macro fix).
-    out=$(printf 'puts $dagwood::imports\nexit\n' \
+    out=$(printf 'puts ${dagwood::imports}\nexit\n' \
           | "$DAGWOOD" -C "$proj" -r 2>/dev/null)
 
     for p in project_1 project_2 project_3; do
         TESTS_RUN=$((TESTS_RUN + 1))
         if echo "$out" | grep -qF "$p"; then
             TESTS_PASSED=$((TESTS_PASSED + 1))
-            log_pass "import tracked in \$dagwood::imports: $p"
+            log_pass "import tracked in \${dagwood::imports}: $p"
         else
             TESTS_FAILED=$((TESTS_FAILED + 1))
-            log_fail "$p missing from \$dagwood::imports"
+            log_fail "$p missing from \${dagwood::imports}"
         fi
     done
 }
@@ -1084,17 +1211,17 @@ test_repl() {
     # REPL with a loaded Dag file can read project-scoped variables.
     run_test_output_contains "REPL evaluates loaded project variable" \
         "s1/build" \
-        bash -c "printf 'puts \$simple_project::S1_BUILD_DIR\nexit\n' | '$DAGWOOD' -C '$proj' -r 2>/dev/null"
+        bash -c "printf 'puts \${simple_project::S1_BUILD_DIR}\nexit\n' | '$DAGWOOD' -C '$proj' -r 2>/dev/null"
 
-    # REPL can introspect loaded tasks via task_get.
-    run_test_output_contains "REPL can task_get on loaded project" \
+    # REPL can introspect loaded tasks via task-get.
+    run_test_output_contains "REPL can task-get on loaded project" \
         "description {Step 1 Test" \
-        bash -c "printf 'puts [task_get simple_project::step_1]\nexit\n' | '$DAGWOOD' -C '$proj' -r 2>/dev/null"
+        bash -c "printf 'puts [task-get simple_project::step_1]\nexit\n' | '$DAGWOOD' -C '$proj' -r 2>/dev/null"
 
     # CLI args reach the REPL.
     run_test_output_contains "REPL receives CLI arg override" \
         "release" \
-        bash -c "printf 'puts \$args_test::BUILD_TYPE\nexit\n' | '$DAGWOOD' -C '$args_proj' BUILD_TYPE=release -r 2>/dev/null"
+        bash -c "printf 'puts \${args_test::BUILD_TYPE}\nexit\n' | '$DAGWOOD' -C '$args_proj' BUILD_TYPE=release -r 2>/dev/null"
 
     # Missing Dag file: REPL warns but still starts.
     local nodag_tmp
@@ -1115,47 +1242,47 @@ test_task_mutation() {
     local proj="$TEST_PROJECTS/mutation-test"
     rm -rf "$proj/build"
 
-    # task_override: mylib::test description should be replaced
-    run_test_output_contains "task_override changes description" \
+    # task-override: mylib::test description should be replaced
+    run_test_output_contains "task-override changes description" \
         "Overridden test" \
         "$DAGWOOD" -C "$proj" -i mylib::test
 
-    # task_override: deploy should be gone (task_disable)
+    # task-override: deploy should be gone (task-disable)
     local list_output
     list_output=$("$DAGWOOD" -C "$proj" -l 2>&1)
 
     TESTS_RUN=$((TESTS_RUN + 1))
     if echo "$list_output" | grep -qF "mylib::deploy"; then
         TESTS_FAILED=$((TESTS_FAILED + 1))
-        log_fail "task_disable removes task from list"
+        log_fail "task-disable removes task from list"
     else
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        log_pass "task_disable removes task from list"
+        log_pass "task-disable removes task from list"
     fi
 
-    # task_extend: always_run should be set
-    run_test_output_contains "task_extend sets always_run" \
-        "always_run: true" \
+    # task-extend: always-run should be set
+    run_test_output_contains "task-extend sets always-run" \
+        "always-run: true" \
         "$DAGWOOD" -C "$proj" -i mylib::build
 
-    # task_extend on a list attribute: should concatenate, not overwrite.
-    # mylib::package starts with depends_on (mylib::build mylib::test).
-    # Main Dag does: task_extend mylib::package { depends_on mylib::build }
+    # task-extend on a list attribute: should concatenate, not overwrite.
+    # mylib::package starts with depends-on (mylib::build mylib::test).
+    # Main Dag does: task-extend mylib::package { depends-on mylib::build }
     # Expected: all three entries appear (Issue #37).
     local package_output
     package_output=$("$DAGWOOD" -C "$proj" -i mylib::package 2>&1)
     TESTS_RUN=$((TESTS_RUN + 1))
-    if echo "$package_output" | grep -qE "depends_on:.*mylib::build.*mylib::test.*mylib::build"; then
+    if echo "$package_output" | grep -qE "depends-on:.*mylib::build.*mylib::test.*mylib::build"; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        log_pass "task_extend concatenates list attributes (#37)"
+        log_pass "task-extend concatenates list attributes (#37)"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
-        log_fail "task_extend overwrote list instead of concatenating"
-        echo "    got: $(echo "$package_output" | grep depends_on)"
+        log_fail "task-extend overwrote list instead of concatenating"
+        echo "    got: $(echo "$package_output" | grep depends-on)"
     fi
 
-    # project_override: description should be set
-    run_test_output_contains "project_override changes project description" \
+    # project-override: description should be set
+    run_test_output_contains "project-override changes project description" \
         "Mutated library" \
         "$DAGWOOD" -C "$proj" -l
 
@@ -1193,11 +1320,160 @@ test_task_mutation() {
     fi
 
     rm -rf "$proj/build"
+
+    # task-extend must not leak its setter procs into the caller's
+    # top-level scope: a stray bare `shell ...` after a task-extend
+    # block must be a hard "unknown command" error, not a silent no-op.
+    run_test_fails "task-extend does not leak setter procs" \
+        "$DAGWOOD" -C "$TEST_PROJECTS/extend-leak-test" -l
+
+    # task-extend refreshes the ${proj::task::*} introspection namespace
+    # (mutation-test extends mylib::build with always-run true).
+    run_test_output_contains "task-extend refreshes introspection namespace" \
+        "true" \
+        bash -c "printf 'puts \${mylib::build::always-run}\nexit\n' | '$DAGWOOD' -C '$proj' -r 2>/dev/null"
 }
 
 # ============================================================================
 # Main
 # ============================================================================
+
+# ============================================================================
+# Generated Tasks (programmatic task creation + ${self::...} splices)
+# ============================================================================
+
+# ============================================================================
+# Job Scheduler Tests (-j)
+# ============================================================================
+
+test_jobs_scheduler() {
+    log_section "Job Scheduler (-j)"
+
+    local proj="$TEST_PROJECTS/jobs-test"
+    rm -f "$proj/order.log" "$proj/left.flag" "$proj/right.flag"
+
+    # -j 1: strictly serial — every start line is immediately followed
+    # by its own end line.
+    run_test "-j 1 executes the graph" "$DAGWOOD" -C "$proj" -j 1 jobs::all
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local serial_ok=1
+    local expect=""
+    while IFS= read -r line; do
+        case "$line" in
+            start-*)
+                [[ -n "$expect" ]] && serial_ok=0
+                expect="end-${line#start-}"
+                ;;
+            end-*)
+                [[ "$line" == "$expect" ]] || serial_ok=0
+                expect=""
+                ;;
+            *) serial_ok=0 ;;
+        esac
+    done < "$proj/order.log"
+    [[ -z "$expect" ]] || serial_ok=0
+    if [[ "$serial_ok" == "1" && $(wc -l < "$proj/order.log") == "6" ]]; then
+        log_pass "-j 1 runs tasks strictly serially"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        log_fail "-j 1 interleaved task execution ($(tr '\n' ' ' < "$proj/order.log"))"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+
+    # Deterministic scheduling: two -j 1 runs produce identical order.
+    local first_order
+    first_order=$(cat "$proj/order.log")
+    rm -f "$proj/order.log"
+    "$DAGWOOD" -C "$proj" -j 1 jobs::all >/dev/null 2>&1 || true
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ "$(cat "$proj/order.log")" == "$first_order" ]]; then
+        log_pass "-j 1 scheduling order is deterministic"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        log_fail "-j 1 order differed between runs"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+    rm -f "$proj/order.log"
+
+    # -j 2: rendezvous tasks require true concurrency to finish.
+    run_test "-j 2 runs independent tasks concurrently" \
+        "$DAGWOOD" -C "$proj" -j 2 jobs::both
+    rm -f "$proj/left.flag" "$proj/right.flag"
+
+    # -j 0: unbounded fan-out (the old default) still works.
+    run_test "-j 0 (unbounded) executes the graph" \
+        "$DAGWOOD" -C "$proj" -j 0 jobs::both
+    rm -f "$proj/left.flag" "$proj/right.flag" "$proj/order.log"
+
+    # Default is bounded to the CPU count, reported in the chatter.
+    run_test_output_contains_any_exit "default -j is bounded (CPU count)" \
+        "[dagwood] jobs: " \
+        bash -c "'$DAGWOOD' -C '$proj' jobs::all 2>&1 | grep -v unbounded"
+    rm -f "$proj/order.log"
+
+    # Invalid -j values are rejected up front.
+    run_test_fails "-j rejects negative values" "$DAGWOOD" -C "$proj" -j -1 jobs::all
+    run_test_fails "-j rejects non-numeric values" "$DAGWOOD" -C "$proj" -j abc jobs::all
+}
+
+test_generated_tasks() {
+    log_section "Generated Tasks"
+
+    local proj="$TEST_PROJECTS/generated-tasks-test"
+    rm -rf "$proj/site"
+
+    # Tasks generated from an imported .dag/ helper module appear in the graph
+    run_test_output_contains "module-generated tasks are listed" \
+        "gen::alpha" \
+        "$DAGWOOD" -C "$proj" --list
+    run_test_output_contains "in-file generator tasks are listed" \
+        "gen::copy-beta" \
+        "$DAGWOOD" -C "$proj" --list
+
+    # Task bodies close over the generator's loop variable
+    run_test_output_contains "generated task has per-iteration inputs" \
+        "inputs: docs/beta.txt" \
+        "$DAGWOOD" -C "$proj" -i gen::beta
+
+    # ${self::inputs} / ${self::outputs} resolve to the task's own attributes
+    run_test_output_contains "self splice resolves to task attributes" \
+        "cp docs/alpha.txt" \
+        "$DAGWOOD" -C "$proj" -i gen::alpha
+
+    # Generated tasks actually execute, and a task can depend on them
+    run_test "generated tasks execute via dependent" \
+        "$DAGWOOD" -C "$proj" gen::all
+    if [ -f "$proj/site/alpha.html" ] && [ -f "$proj/site/beta.html" ]; then
+        log_pass "generated tasks produced their outputs"
+    else
+        log_fail "generated tasks did not produce outputs"
+    fi
+    run_test "in-file generated task executes" \
+        "$DAGWOOD" -C "$proj" gen::copy-alpha
+    rm -rf "$proj/site"
+
+    # Explicit ${proj::kebab-task::attr} splices and kebab introspection names
+    run_test_output_contains "explicit kebab-segment splice resolves" \
+        "copy-alpha reads docs/alpha.txt" \
+        "$DAGWOOD" -C "$proj" gen::attrs
+    run_test_output_contains "kebab introspection variable resolves" \
+        "all always-run: true" \
+        "$DAGWOOD" -C "$proj" gen::attrs
+
+    # Undefined self attribute is a load-time error with a task-specific message
+    run_test_fails "project named self is rejected" \
+        "$DAGWOOD" -C "$TEST_PROJECTS/self-reserved-test" --list
+    run_test_output_contains_any_exit "self reserved error names the reason" \
+        "'self' is reserved" \
+        "$DAGWOOD" -C "$TEST_PROJECTS/self-reserved-test" --list
+
+    # `task` outside a project block errors clearly
+    run_test_fails "task outside project fails" \
+        "$DAGWOOD" -C "$TEST_PROJECTS/task-outside-project-test" --list
+    run_test_output_contains_any_exit "task outside project error is specific" \
+        "must be used inside a project block" \
+        "$DAGWOOD" -C "$TEST_PROJECTS/task-outside-project-test" --list
+}
 
 main() {
     echo -e "${BOLD}Dagwood Integration Test Suite${RESET}"
@@ -1225,12 +1501,15 @@ main() {
     test_bad_depends_on
     test_run_subcommand
     test_custom_shell
+    test_lcl_shell
     test_multi_project
     test_import_tracking
     test_args
     test_memo_collision
     test_repl
     test_task_mutation
+    test_generated_tasks
+    test_jobs_scheduler
 
     # Summary
     log_section "Summary"

@@ -1,0 +1,18 @@
+;; Regression: task-extend used to leak its setter procs (shell, run,
+;; depends-on, ...) into the caller's top-level scope, turning later
+;; bare attribute calls into silent no-ops. This file must FAIL to
+;; load with "unknown command: shell".
+
+project extend_leak {
+    task t1 {
+        description "original"
+        run { echo hi }
+    }
+}
+
+task-extend extend_leak::t1 {
+    always-run true
+}
+
+;; Stray top-level attribute call: must be a hard error.
+shell /bin/zsh

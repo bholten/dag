@@ -1,0 +1,19 @@
+;; Helper module: a task generator living outside any Dag file.
+;; `import` (Lcl `require`) is a scoped load, so only this namespace is
+;; visible to the importer; `task` is the prelude-defined DSL command and
+;; resolves here even though this proc is compiled before any project.
+namespace DocGen {
+    proc gen-docs {docs} {
+        foreach name $docs {
+            task $name {
+                description "generated: $name"
+                inputs "docs/${name}.txt"
+                outputs "site/${name}.html"
+                run {
+                    mkdir -p site
+                    cp ${self::inputs} ${self::outputs}
+                }
+            }
+        }
+    }
+}

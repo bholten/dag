@@ -19,10 +19,10 @@ stderr, child task output prefixed on stdout).
 ### The Dagwood DSL
 
 The embedded Lcl-based DSL in `lib/dagwood.lcl`: `project`, `task`,
-`command`, `import`, `arg`, `def`, `config`, `task_override`,
-`task_extend`, `task_disable`, `project_override`, `task_get`, and the
+`command`, `import`, `arg`, `def`, `config`, `task-override`,
+`task-extend`, `task-disable`, `project-override`, `task-get`, and the
 attribute names within `task` blocks (`inputs`, `outputs`,
-`depends_on`, `run`, `always_run`, `description`, etc.).
+`depends-on`, `run`, `always-run`, `description`, etc.).
 
 The embedded Lcl interpreter itself versions independently and is
 pinned by SHA via CMake's `FetchContent` in `CMakeLists.txt` -- see

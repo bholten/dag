@@ -3,78 +3,36 @@
 
 project dagwood {
     config {
-        always_run false
         description "The Dagwood task-orchestration tool"
-        shell     /bin/sh
-        shell_arg -c
     }
 
-    let BUILD_FOLDER build
-
-    task build_pre_reqs {
-        description "Setup the build folder"
-        outputs $dagwood::BUILD_FOLDER
-        run {
-            mkdir -p $dagwood::BUILD_FOLDER
-        }
-    }
-
-    let CC gcc
-    let SOURCE [glob src/*.c]
-    let HEADERS [glob src/*.h]
-
-    let STANDARD_OPTS "-std=c11 -Os -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -D_GNU_SOURCE -Wstrict-overflow -fno-strict-aliasing"
-    let DEBUG_OPTS "-g3 -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline -fsanitize=address"
-    let RELEASE_OPTS "-O2 -DNDEBUG -s -march=native"
-
-    task debug {
-        description "Build Dagwood - debug"
-        depends_on dagwood::build_pre_reqs
-        inputs ($dagwood::SOURCE $dagwood::HEADERS)
-        outputs ($dagwood::BUILD_FOLDER/dagwood_debug)
-        run {
-            $dagwood::CC $dagwood::DEBUG_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::BUILD_FOLDER/dagwood_debug
-        }
-    }
-
-    task release {
-        description "Build Dagwood - release"
-        depends_on dagwood::build_pre_reqs
-        inputs [list $dagwood::SOURCE $dagwood::HEADERS]
-        outputs $dagwood::BUILD_FOLDER/dagwood
-        run {
-            $dagwood::CC $dagwood::RELEASE_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::release::outputs
-        }
-    }
-
-    let COMPILE_COMMANDS compile_commands.json
-
-    task bear {
-        description "Generate compile_commands.json for clangd"
-        depends_on dagwood::debug
-        inputs ($dagwood::SOURCE $dagwood::HEADERS)
-        outputs $dagwood::COMPILE_COMMANDS
-        run {
-            bear -- $dagwood::CC $dagwood::DEBUG_OPTS $dagwood::STANDARD_OPTS $dagwood::SOURCE -o $dagwood::BUILD_FOLDER/dagwood_debug
-        }
-    }
+    let SOURCE [Posix::glob src/*.lcl src/*.c src/*.h]
 
     task fmt {
         description "Run clang-format"
-        inputs $dagwood::SOURCE
+        inputs ${dagwood::SOURCE}
         outputs .clang-format
         run {
             set -ex
-            clang-format -i $dagwood::SOURCE
+            clang-format -i ${dagwood::SOURCE}
             touch .clang-format
+        }
+    }
+
+    task build {
+        inputs ${dagwood::SOURCE}
+        outputs build/
+        depends-on dagwood::fmt
+        run {
+            set -ex
+            cmake -B build
+            cmake --build build
         }
     }
 
     command clean {
         run {
-            set -ex
-            echo "Cleaning"
-            rm -rf $dagwood::BUILD_FOLDER $dagwood::bear::outputs
+            rm -rf ${dagwood::build::outputs}
         }
     }
 }

@@ -1,0 +1,12 @@
+;; A splice naming an unknown project must hard-fail the load.
+;; (Here it's bash substring syntax the author forgot to escape.)
+
+project bad_splice {
+    task uses_bash_substring {
+        shell /bin/bash
+        shell-arg -c
+        run {
+            echo "${HOME::3}"
+        }
+    }
+}

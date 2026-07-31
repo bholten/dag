@@ -1,0 +1,5 @@
+;; Regression: `self` is reserved as a project name (it names the current
+;; task in run-body splices), so this Dag must fail to load.
+project self {
+    task t { run { echo hi } }
+}

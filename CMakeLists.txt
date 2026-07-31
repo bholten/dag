@@ -24,17 +24,15 @@ set(LCL_BUILD_CLI OFF CACHE BOOL "Don't build LCL CLI" FORCE)
 set(LCL_BUILD_SHARED OFF CACHE BOOL "Don't build shared LCL" FORCE)
 
 set(LCL_BUILD_IO ON CACHE BOOL "Build Lcl IO extension" FORCE)
+set(LCL_BUILD_POSIX ON CACHE BOOL "Build Lcl with the POSIX extension" FORCE)
 set(LCL_BUILD_TIME ON CACHE BOOL "Build Lcl time extension" FORCE)
 set(LCL_BUILD_PROCESS ON CACHE BOOL "Build Lcl process extension" FORCE)
-set(LCL_BUILD_EXPECT_LIB ON CACHE BOOL "Build Lcl expect library" FORCE)
-set(LCL_BUILD_SH_LIB ON CACHE BOOL "Build Lcl sh library" FORCE)
-set(LCL_BUILD_MACRO_LIB ON CACHE BOOL "Build Lcl macro library" FORCE)
 
 include(FetchContent)
 FetchContent_Declare(
   lcl
   GIT_REPOSITORY https://github.com/bholten/lcl.git
-  GIT_TAG        6b0b09537a20516103363a05c9cf37c8aa7734d4
+  GIT_TAG        8da8c0d253c0f9c02e6240c1a680bcbd2fa3ee3a
   GIT_SHALLOW    FALSE
 )
 FetchContent_MakeAvailable(lcl)
@@ -87,10 +85,10 @@ target_include_directories(dagwood PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${DAGWOOD_GEN_DIR}
   ${DAGWOOD_VERSION_HEADER_DIR}
-  ${lcl_SOURCE_DIR}/packages/lcl-io/include
 )
 
-target_link_libraries(dagwood PRIVATE lcl_static lcl_io)
+target_link_libraries(dagwood PRIVATE
+  lcl_static lcl_io lcl_posix lcl_time lcl_process)
 
 add_dependencies(dagwood generate_dsl_header)
 

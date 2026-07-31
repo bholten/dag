@@ -1,9 +1,9 @@
 project project_1 {
     let TASK_1_BUILD_DIR task_1/build
-    let TASK_1_OUT $project_1::TASK_1_BUILD_DIR/task_1.out
+    let TASK_1_OUT ${project_1::TASK_1_BUILD_DIR}/task_1.out
 
     task task_1 {
-        outputs $project_1::TASK_1_OUT
+        outputs ${project_1::TASK_1_OUT}
         run {
             set -ex
             mkdir -p task_1/build
@@ -14,10 +14,10 @@ project project_1 {
     let TASK_2_BUILD_DIR task_2/build
 
     task task_2 {
-        inputs $project_1::TASK_1_OUT
-        outputs ($project_1::TASK_2_BUILD_DIR/task_2.out1
-                 $project_1::TASK_2_BUILD_DIR/task_2.out2
-                 $project_1::TASK_2_BUILD_DIR/task_2.out3)
+        inputs ${project_1::TASK_1_OUT}
+        outputs (${project_1::TASK_2_BUILD_DIR}/task_2.out1
+                 ${project_1::TASK_2_BUILD_DIR}/task_2.out2
+                 ${project_1::TASK_2_BUILD_DIR}/task_2.out3)
         run {
             set -ex
             mkdir -p task_2/build
@@ -29,7 +29,7 @@ project project_1 {
     }
 
     task task_3 {
-        inputs $project_1::TASK_2_BUILD_DIR/task_2.out2
+        inputs ${project_1::TASK_2_BUILD_DIR}/task_2.out2
         outputs task_3/build/task_3.out
         run {
             set -ex

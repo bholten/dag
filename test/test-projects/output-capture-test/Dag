@@ -4,7 +4,7 @@
 project capture {
     ;; Plain stdout: one prefix per emitted line.
     task plain_stdout {
-        always_run true
+        always-run true
         run {
             echo "first"
             echo "second"
@@ -14,7 +14,7 @@ project capture {
 
     ;; Plain stderr: same shape, but on the stderr channel.
     task plain_stderr {
-        always_run true
+        always-run true
         run {
             echo "err 1" >&2
             echo "err 2" >&2
@@ -24,7 +24,7 @@ project capture {
     ;; No trailing newline: parent must flush the partial buffer at EOF
     ;; (with a synthesized newline) so the data isn't dropped.
     task no_trailing_newline {
-        always_run true
+        always-run true
         run {
             printf "no_newline_here"
         }
@@ -34,7 +34,7 @@ project capture {
     ;; split silently at the buffer boundary; total bytes preserved.
     ;; 10000 'x' characters with no newline.
     task long_line {
-        always_run true
+        always-run true
         run {
             printf 'x%.0s' $(seq 1 10000)
             echo
@@ -44,7 +44,7 @@ project capture {
     ;; Crashes via SIGSEGV after producing some output. Parent must
     ;; flush the partial line and emit a "terminated by signal" notice.
     task crasher {
-        always_run true
+        always-run true
         run {
             echo "before crash"
             kill -SEGV $$
@@ -54,10 +54,10 @@ project capture {
     ;; Three sibling tasks in the same layer. Lines from each task must
     ;; remain attributable via their prefix; cross-task interleaving is
     ;; allowed but lines must not be torn.
-    task parallel_a { always_run true
+    task parallel_a { always-run true
                       run { for i in 1 2 3; do echo "a $i"; done } }
-    task parallel_b { always_run true
+    task parallel_b { always-run true
                       run { for i in 1 2 3; do echo "b $i"; done } }
-    task parallel_c { always_run true
+    task parallel_c { always-run true
                       run { for i in 1 2 3; do echo "c $i"; done } }
 }

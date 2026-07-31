@@ -1,0 +1,6 @@
+;; Regression: `task` outside any project block must fail with a clear
+;; error rather than silently defining nothing.
+task orphan {
+    run { echo orphan }
+}
+project p {}
