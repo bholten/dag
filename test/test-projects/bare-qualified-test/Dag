@@ -1,0 +1,14 @@
+;; Regression: Lcl no longer accepts Tcl-style bare `$name::path`;
+;; the only spelling for a qualified substitution is `${name::path}`.
+;; This Dag uses the old spelling in an expression position and must
+;; fail to load with Lcl's migration diagnostic.
+project bare_qualified_test {
+    let BUILD_DIR build
+
+    task build {
+        outputs $bare_qualified_test::BUILD_DIR/out
+        run {
+            echo nope
+        }
+    }
+}

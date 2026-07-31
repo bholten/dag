@@ -1,10 +1,11 @@
-;; Dagwood DSL - LCL Implementation (Nested Design)
-;; This file is loaded automatically by the Dagwood C runtime.
-;; The DSL is now fully implemented in Lcl. The C side registers a
-;; handful of stdlib helpers (`pwd`, `cd`, `glob`, `file`, ...) but
-;; the language surface (`project`, `task`, `command`, `import`,
-;; `def`, `arg`, `task_override`, `task_extend`, `task_disable`,
-;; `project_override`, `task_get`) is all defined here.
+;;; Dagwood DSL - LCL Implementation (Nested Design)
+;;; This file is loaded automatically by the Dagwood C runtime.
+;;; The DSL is fully implemented in Lcl. Filesystem and process
+;;; helpers come from the standard Lcl extensions registered by the C
+;;; side (`Io::*`, `Posix::*`, `Time::*`, `Process::*`); the language
+;;; surface (`project`, `task`, `command`, `import`, `arg`,
+;;; `task-override`, `task-extend`, `task-disable`,
+;;; `project-override`, `task-get`) is all defined here.
 
 ;; Global registry - initialize only once
 ;; catch returns 1 on error (not initialized), 0 on success (already initialized)
@@ -19,19 +20,14 @@ if [== $_dagwood_needs_init 1] {
     }
 }
 
-;; ============================================================================
-;; Project-scoped variable definition (DSL keyword)
-;; ============================================================================
-;;
-;; After Phase C, `def` is gone: project bodies are evaluated inside their
-;; namespace, so bare `let X Y` and `var X Y` auto-scope to $project::X.
-;;
-;; `arg` remains because it has logic beyond binding: it resolves CLI
-;; overrides (set via `dag KEY=value`) before falling back to the supplied
-;; default. CLI args are stored by interpreter_set_cli_arg under
-;; ::__dagwood_cli_args::<name>.
+;;; Project-scoped variable definition (DSL keyword)
+;;;
+;;; `arg` remains because it has logic beyond binding: it resolves CLI
+;;; overrides (set via `dag KEY=value`) before falling back to the supplied
+;;; default. CLI args are stored by interpreter_set_cli_arg under
+;;; ::__dagwood_cli_args::<name>.
 proc arg {name default_val} {
-    let proj $dagwood::current_project
+    let proj ${dagwood::current_project}
     if [empty? $proj] {
         error "arg: must be used inside a project block"
     }
@@ -42,8 +38,43 @@ proc arg {name default_val} {
     return $final
 }
 
+;;; `task`, `command` and `config` are defined ONCE here, in the prelude,
+;;; and dispatch on ${dagwood::current_project} at call time (the same
+;;; pattern `arg` uses). They used to be re-`proc`'d at top level by
+;;; every `project` expansion, which meant any proc compiled before the
+;;; project block -- a generator helper in the Dag file, or in a
+;;; `require`d module -- could not resolve `task` at all (Lcl proc
+;;; bodies are lexical-only: "unknown command: task"). Defining them
+;;; before any user code compiles makes `task` an ordinary callable
+;;; from anywhere, so programmatic task generation is plain Lcl:
+;;;
+;;;     proc gen-docs {docs} {
+;;;         foreach name $docs {
+;;;             task $name { inputs "docs/${name}.lcl" ... }
+;;;         }
+;;;     }
+proc _current_impl {which} {
+    let proj ${dagwood::current_project}
+    if [empty? $proj] {
+        error "$which: must be used inside a project block"
+    }
+    getvar "${proj}::${which}_impl"
+}
+
+proc task {name body} {
+    apply [_current_impl task] $name $body
+}
+
+proc command {name body} {
+    apply [_current_impl command] $name $body
+}
+
+proc config {body} {
+    apply [_current_impl config] $body
+}
+
 ;; Concatenate two values as lists. Scalars are promoted to single-element
-;; lists. Used by task_extend to extend (not overwrite) list attributes.
+;; lists. Used by task-extend to extend (not overwrite) list attributes.
 ;; If existing is empty, returns val unchanged so single-scalar attributes
 ;; like `description` continue to work via the same path.
 proc _extend_list {existing val} {
@@ -69,13 +100,9 @@ proc _split_qualified {qualified_name} {
     return [list $proj $rest]
 }
 
-;; ============================================================================
-;; Nested Project Implementation
-;; ============================================================================
-
-;; `project` is a pure-Lcl macro. It calls the `_project` helper (below) to
-;; build setup_code + wrapped_body, then expands to a sequence that evals
-;; both pieces and tracks the current project via $dagwood::current_project.
+;;; `project` is a pure-Lcl macro. It calls the `_project` helper (below) to
+;;; build setup_code + wrapped_body, then expands to a sequence that evals
+;;; both pieces and tracks the current project via ${dagwood::current_project}.
 macro project {name body} {
     quasiquote {
         let _proj_result [_project ,$name {,$body}]
@@ -90,11 +117,15 @@ macro project {name body} {
 ;; It returns a list: (setup_code wrapped_body) where:
 ;;   - setup_code is evaluated at the project-call site to create the namespace
 ;;   - wrapped_body is the user's body wrapped in `namespace $project_name { ... }`
-;;     so that bare `let X Y` / `var X Y` auto-scope to $project::X
+;;     so that bare `let X Y` / `var X Y` auto-scope to ${project::X}
 proc _project {project_name body} {
+    if [== $project_name self] {
+        error "project: 'self' is reserved (it names the current task in run-body splices)"
+    }
+
     let setup_code [quasiquote {
         ;; Register project
-        set! dagwood::projects [List::push $dagwood::projects ,$project_name]
+        set! dagwood::projects [List::push ${dagwood::projects} ,$project_name]
 
         ;; Create project namespace with storage and DSL procs
         namespace ,$project_name {
@@ -103,8 +134,8 @@ proc _project {project_name body} {
             var _commands #{}
 
             proc config_impl {body} {
-                proc always_run {_always_run} {
-                    set! _config [put $_config always_run $_always_run]
+                proc always-run {_always_run} {
+                    set! _config [put $_config always-run $_always_run]
                 }
 
                 proc description {_description} {
@@ -115,8 +146,8 @@ proc _project {project_name body} {
                     set! _config [put $_config shell $_shell]
                 }
 
-                proc shell_arg {_shell_arg} {
-                    set! _config [put $_config shell_arg $_shell_arg]
+                proc shell-arg {_shell_arg} {
+                    set! _config [put $_config shell-arg $_shell_arg]
                 }
 
                 eval $body
@@ -132,11 +163,11 @@ proc _project {project_name body} {
 
                 var _task #{}
 
-                proc always_run {_always_run} {
-                    set! _task [put $_task always_run $_always_run]
+                proc always-run {_always_run} {
+                    set! _task [put $_task always-run $_always_run]
                 }
 
-                proc depends_on {_depends_on} {
+                proc depends-on {_depends_on} {
                     set! _task [put $_task depends-on $_depends_on]
                 }
 
@@ -156,28 +187,53 @@ proc _project {project_name body} {
                     set! _task [put $_task run $_run]
                 }
 
+                proc shell {_shell} {
+                    set! _task [put $_task shell $_shell]
+                }
+
+                proc shell-arg {_shell_arg} {
+                    set! _task [put $_task shell-arg $_shell_arg]
+                }
+
                 eval $body
 
                 set! _tasks [put $_tasks $task_name $_task]
 
-                ;; Create sub-namespace for task attributes (e.g., project::task::run)
-                let proj $dagwood::current_project
-                let ns_name "${proj}::${task_name}"
+                ;; Create sub-namespace for task attributes (e.g., project::task::run).
+                ;; The project name is baked in at generation time (not read from
+                ;; ${dagwood::current_project}) so task-override works outside a
+                ;; project block.
+                ;;
+                ;; Built as an anonymous namespace and installed with Ns::set:
+                ;; a qualified `namespace $name` re-entry can no longer find
+                ;; the project namespace from a compiled proc body (name
+                ;; resolution redesign: proc bodies are lexical-only), and
+                ;; would silently rebind a fresh root instead. `getvar` is
+                ;; by-name reflection and resolves dynamically, so it still
+                ;; reaches the project namespace wherever the Dag file
+                ;; landed it.
+                let proj ,$project_name
                 let run_val [get $_task run ()]
                 let desc_val [get $_task description ()]
                 let inputs_val [get $_task inputs ()]
                 let outputs_val [get $_task outputs ()]
                 let depends_on_val [get $_task depends-on ()]
-                let always_run_val [get $_task always_run ()]
+                let always_run_val [get $_task always-run ()]
+                let shell_val [get $_task shell ()]
+                let shell_arg_val [get $_task shell-arg ()]
 
-                namespace $ns_name {
+                let task_ns [namespace {
                     var run $run_val
                     var description $desc_val
                     var inputs $inputs_val
                     var outputs $outputs_val
-                    var depends_on $depends_on_val
-                    var always_run $always_run_val
-                }
+                    var depends-on $depends_on_val
+                    var always-run $always_run_val
+                    var shell $shell_val
+                    var shell-arg $shell_arg_val
+                }]
+
+                Ns::set [getvar $proj] $task_name $task_ns
 
                 return $_task
             }
@@ -198,37 +254,109 @@ proc _project {project_name body} {
                     set! _command [put $_command run $_run]
                 }
 
+                proc shell {_shell} {
+                    set! _command [put $_command shell $_shell]
+                }
+
+                proc shell-arg {_shell_arg} {
+                    set! _command [put $_command shell-arg $_shell_arg]
+                }
+
                 eval $body
 
                 set! _commands [put $_commands $command_name $_command]
 
-                ;; Create sub-namespace for command attributes (e.g., project::command::run)
-                let proj $dagwood::current_project
-                let ns_name "${proj}::${command_name}"
+                let proj ,$project_name
                 let run_val [get $_command run ()]
                 let desc_val [get $_command description ()]
+                let shell_val [get $_command shell ()]
+                let shell_arg_val [get $_command shell-arg ()]
 
-                namespace $ns_name {
+                let cmd_ns [namespace {
                     var run $run_val
                     var description $desc_val
-                }
+                    var shell $shell_val
+                    var shell-arg $shell_arg_val
+                }]
+                Ns::set [getvar $proj] $command_name $cmd_ns
 
                 return $_command
             }
+
+            ;; Extend an existing task. Runs in its own call frame so the
+            ;; setter procs (and the _task binding) stay frame-local
+            ;; instead of leaking into the calling Dag file's top level
+            ;; where a later bare `shell ...` / `run ...` typo would
+            ;; silently mutate a dead copy instead of erroring.
+            proc task_extend_impl {task_name body} {
+                var _task [get $_tasks $task_name]
+
+                proc always-run {val} {
+                    set! _task [put $_task always-run $val]
+                }
+
+                proc depends-on {val} {
+                    set! _task [put $_task depends-on [_extend_list [get $_task depends-on] $val]]
+                }
+
+                proc description {val} {
+                    set! _task [put $_task description $val]
+                }
+
+                proc inputs {val} {
+                    set! _task [put $_task inputs [_extend_list [get $_task inputs] $val]]
+                }
+
+                proc outputs {val} {
+                    set! _task [put $_task outputs [_extend_list [get $_task outputs] $val]]
+                }
+
+                proc run {val} {
+                    set! _task [put $_task run $val]
+                }
+
+                proc shell {val} {
+                    set! _task [put $_task shell $val]
+                }
+
+                proc shell-arg {val} {
+                    set! _task [put $_task shell-arg $val]
+                }
+
+                eval $body
+
+                set! _tasks [put $_tasks $task_name $_task]
+
+                ;; Refresh the introspection sub-namespace so
+                ;; ${proj::task::*} reflects the extended values.
+                ;; Same Ns::set install as task_impl above.
+                let proj ,$project_name
+                let run_val [get $_task run ()]
+                let desc_val [get $_task description ()]
+                let inputs_val [get $_task inputs ()]
+                let outputs_val [get $_task outputs ()]
+                let depends_on_val [get $_task depends-on ()]
+                let always_run_val [get $_task always-run ()]
+                let shell_val [get $_task shell ()]
+                let shell_arg_val [get $_task shell-arg ()]
+
+                let task_ns [namespace {
+                    var run $run_val
+                    var description $desc_val
+                    var inputs $inputs_val
+                    var outputs $outputs_val
+                    var depends-on $depends_on_val
+                    var always-run $always_run_val
+                    var shell $shell_val
+                    var shell-arg $shell_arg_val
+                }]
+
+                Ns::set [getvar $proj] $task_name $task_ns
+
+                return $_task
+            }
         }
 
-        ;; Define top-level procs that delegate to namespace-scoped impl procs
-        proc config {body} {
-            ,${project_name}::config_impl $body
-        }
-
-        proc task {name body} {
-            ,${project_name}::task_impl $name $body
-        }
-
-        proc command {name body} {
-            ,${project_name}::command_impl $name $body
-        }
     }]
 
     ;; Phase C: wrap user body in `namespace ${project_name} { body }` so bare
@@ -254,13 +382,13 @@ macro import {path} {
     let _new_name    [gensym]
 
     quasiquote {
-        let ,$_before_name [len $dagwood::projects]
+        let ,$_before_name [len ${dagwood::projects}]
         require ,$path
-        let ,$_after_name [len $dagwood::projects]
+        let ,$_after_name [len ${dagwood::projects}]
 
         if [> $,$_after_name $,$_before_name] {
-            let ,$_new_name [get $dagwood::projects [- $,$_after_name 1]]
-            set! dagwood::imports [put $dagwood::imports $,$_new_name ,$path]
+            let ,$_new_name [get ${dagwood::projects} [- $,$_after_name 1]]
+            set! dagwood::imports [put ${dagwood::imports} $,$_new_name ,$path]
         }
     }
 }
@@ -269,9 +397,9 @@ macro import {path} {
 ;; Task Manipulation Helpers (for advanced use)
 ;; ============================================================================
 
-;; Get a task dict from a project
-;; Usage: task_get project::taskname
-proc task_get {qualified_name} {
+;;; Get a task dict from a project
+;;; Usage: task-get project::taskname
+proc task-get {qualified_name} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]
     let task_name [get $parts 1]
@@ -281,9 +409,9 @@ proc task_get {qualified_name} {
     get $tasks $task_name
 }
 
-;; Override a task completely
-;; Usage: task_override project::taskname { description "..." run {...} }
-macro task_override {qualified_name body} {
+;;; Override a task completely
+;;; Usage: task-override project::taskname { description "..." run {...} }
+macro task-override {qualified_name body} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]
     let task_name [get $parts 1]
@@ -293,62 +421,35 @@ macro task_override {qualified_name body} {
     }
 }
 
-;; Extend/modify an existing task
-;; Usage: task_extend project::taskname { depends_on additional_dep }
-macro task_extend {qualified_name body} {
+;;; Extend/modify an existing task
+;;; Usage: task-extend project::taskname { depends-on additional_dep }
+;;; Delegates to the project's task_extend_impl so the setters live in a
+;;; call frame, not the caller's top-level scope.
+macro task-extend {qualified_name body} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]
     let task_name [get $parts 1]
 
     quasiquote {
-        let _existing [get $,${proj}::_tasks ,$task_name]
-        var _task $_existing
-
-        proc always_run {val} {
-            set! _task [put $_task always_run $val]
-        }
-
-        proc depends_on {val} {
-            set! _task [put $_task depends-on [_extend_list [get $_task depends-on] $val]]
-        }
-
-        proc description {val} {
-            set! _task [put $_task description $val]
-        }
-
-        proc inputs {val} {
-            set! _task [put $_task inputs [_extend_list [get $_task inputs] $val]]
-        }
-
-        proc outputs {val} {
-            set! _task [put $_task outputs [_extend_list [get $_task outputs] $val]]
-        }
-
-        proc run {val} {
-            set! _task [put $_task run $val]
-        }
-
-        eval {,$body}
-
-        set! ,${proj}::_tasks [put $,${proj}::_tasks ,$task_name $_task]
+        ,${proj}::task_extend_impl ,$task_name {,$body}
     }
 }
 
-;; Override project config
-;; Usage: project_override myproject { shell /bin/bash }
-macro project_override {project_name body} {
+;;; Override project config
+;;; Usage: project-override myproject { shell /bin/bash }
+macro project-override {project_name body} {
     quasiquote {
         ,${project_name}::config_impl {,$body}
     }
 }
 
-;; Disable/remove a task
-macro task_disable {qualified_name} {
+;;; Disable/remove a task
+macro task-disable {qualified_name} {
     let parts [_split_qualified $qualified_name]
     let proj [get $parts 0]
     let task_name [get $parts 1]
 
     return [quasiquote {
-        set! ,${proj}::_tasks [del $,${proj}::_tasks ,$task_name]
+        set! ,${proj}::_tasks [del [getvar ,${proj}::_tasks] ,$task_name]
     }]
 }

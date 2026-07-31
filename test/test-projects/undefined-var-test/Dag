@@ -6,7 +6,7 @@ project undef_var_test {
     task bad_var {
         description "Uses a misspelled variable"
         run {
-            echo $undef_var_test::BUILD_DIER
+            echo ${undef_var_test::BUILD_DIER}
         }
     }
 }

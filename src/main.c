@@ -13,6 +13,7 @@
  *   dag -r                   Start REPL
  */
 
+#include <errno.h>
 #include <getopt.h>
 #include <signal.h>
 #include <stdio.h>
@@ -70,6 +71,7 @@ static void show_help(void) {
   puts("  -d, --dot              Print DAG as Graphviz dot format");
   puts("  -y, --dry-run          Show execution order without running");
   puts("  -i, --inspect          Inspect task properties (all or specific task)");
+  puts("  -j, --jobs N           Run at most N tasks at once (default: CPU count; 0 = unbounded)");
   puts("  -F, --force            Force rebuild (skip staleness checks)");
   puts("  -q, --quiet            Suppress child task output (still see [dagwood] chatter on stderr)");
   puts("  -r, --repl             Start interactive REPL");
@@ -85,6 +87,7 @@ static void show_help(void) {
   puts("  dag BUILD_TYPE=release   Set BUILD_TYPE arg to 'release'");
   puts("  dag -f custom.dw         Use custom.dw instead of Dag");
   puts("  dag -C src build         Change to src/, then run 'build'");
+  puts("  dag -j 1 build           Run 'build' and its dependencies serially");
 }
 // clang-format on
 
@@ -265,7 +268,7 @@ static int cmd_repl(const char *file) {
   return EXIT_SUCCESS;
 }
 
-static int cmd_run_all(const char *file, int quiet) {
+static int cmd_run_all(const char *file, int quiet, size_t jobs) {
   dagwood_env *env = env_new(file);
 
   if (!env) {
@@ -281,13 +284,15 @@ static int cmd_run_all(const char *file, int quiet) {
     g_graph->quiet = true;
   }
 
+  g_graph->max_jobs = jobs;
+
   int ok = dagwood_graph_execute(g_graph);
   env_delete(env);
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 static int cmd_run_task(const char *file, const char *name, int force,
-                        int quiet) {
+                        int quiet, size_t jobs) {
   dagwood_env *env = env_new(file);
 
   if (!env) {
@@ -313,20 +318,22 @@ static int cmd_run_task(const char *file, const char *name, int force,
     g_graph->quiet = true;
   }
 
+  g_graph->max_jobs = jobs;
+
   int ok = dagwood_graph_execute_task(g_graph, name);
   env_delete(env);
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-static int cmd_run_subcommand(const char *file, int force, int quiet, int argc,
-                              char **argv) {
+static int cmd_run_subcommand(const char *file, int force, int quiet,
+                              size_t jobs, int argc, char **argv) {
   /* argv[0] is "run", argv[1] should be the task name */
   if (argc < 2) {
     fprintf(stderr, "[dagwood] run: missing task name\n");
     return EXIT_FAILURE;
   }
 
-  return cmd_run_task(file, argv[1], force, quiet);
+  return cmd_run_task(file, argv[1], force, quiet, jobs);
 }
 
 static void parse_cli_args(int argc, char **argv, int start_idx,
@@ -387,6 +394,7 @@ int main(int argc, char **argv) {
       {"dot",       no_argument,       0, 'd'},
       {"dry-run",   no_argument,       0, 'y'},
       {"inspect",   no_argument,       0, 'i'},
+      {"jobs",      required_argument, 0, 'j'},
       {"force",     no_argument,       0, 'F'},
       {"quiet",     no_argument,       0, 'q'},
       {"repl",      no_argument,       0, 'r'},
@@ -399,6 +407,8 @@ int main(int argc, char **argv) {
   const char *file = DEFAULT_FILE;
   int force = 0;
   int quiet = 0;
+  size_t jobs = 0;
+  int jobs_set = 0;
   int opt;
 
   enum {
@@ -410,7 +420,7 @@ int main(int argc, char **argv) {
     MODE_REPL
   } mode = MODE_RUN;
 
-  while ((opt = getopt_long(argc, argv, "C:f:ldyiFqrhv", long_opts, NULL)) !=
+  while ((opt = getopt_long(argc, argv, "C:f:ldyij:Fqrhv", long_opts, NULL)) !=
          -1) {
     switch (opt) {
     case 'C': directory = optarg; break;
@@ -419,6 +429,23 @@ int main(int argc, char **argv) {
     case 'd': mode = MODE_DOT; break;
     case 'y': mode = MODE_DRY; break;
     case 'i': mode = MODE_INSPECT; break;
+    case 'j': {
+      char *endp = NULL;
+      errno = 0;
+      long v = strtol(optarg, &endp, 10);
+
+      if (errno != 0 || endp == optarg || *endp != '\0' || v < 0) {
+        fprintf(stderr,
+                "[dagwood] invalid -j value: %s "
+                "(expected a non-negative integer; 0 = unbounded)\n",
+                optarg);
+        return EXIT_FAILURE;
+      }
+
+      jobs = (size_t)v;
+      jobs_set = 1;
+      break;
+    }
     case 'F': force = 1; break;
     case 'q': quiet = 1; break;
     case 'r': mode = MODE_REPL; break;
@@ -426,6 +453,11 @@ int main(int argc, char **argv) {
     case 'v': show_version(); return EXIT_SUCCESS;
     default: show_help(); return EXIT_FAILURE;
     }
+  }
+
+  if (!jobs_set) {
+    long nc = sysconf(_SC_NPROCESSORS_ONLN);
+    jobs = (nc >= 1) ? (size_t)nc : 1;
   }
 
   if (directory && chdir(directory) != 0) {
@@ -463,19 +495,19 @@ int main(int argc, char **argv) {
   }
 
   if (target == NULL) {
-    result = cmd_run_all(file, quiet);
+    result = cmd_run_all(file, quiet, jobs);
     free_cli_args();
     return result;
   }
 
   if (strcmp(target, "run") == 0) {
-    result =
-        cmd_run_subcommand(file, force, quiet, argc - optind, &argv[optind]);
+    result = cmd_run_subcommand(file, force, quiet, jobs, argc - optind,
+                                &argv[optind]);
     free_cli_args();
     return result;
   }
 
-  result = cmd_run_task(file, target, force, quiet);
+  result = cmd_run_task(file, target, force, quiet, jobs);
   free_cli_args();
   return result;
 }

@@ -4,7 +4,7 @@
 project custom_shell_test {
     config {
         shell /bin/bash
-        shell_arg -c
+        shell-arg -c
     }
 
     ;; This task uses bash-specific syntax (BASH_VERSION variable)
@@ -14,6 +14,44 @@ project custom_shell_test {
         description "Verify bash is the actual shell"
         run {
             echo "SHELL_CHECK:${BASH_VERSION}"
+        }
+    }
+
+    ;; Task-level override: project shell is /bin/bash, but this task
+    ;; uses /bin/echo, which just prints its arguments. If the override
+    ;; is honored the marker appears verbatim; if the project shell ran
+    ;; the body instead, it would fail (not a shell script) and the
+    ;; marker would never print. Positively detectable on any distro,
+    ;; including ones where /bin/sh is bash.
+    task task_shell_override {
+        description "Task-level shell override to /bin/echo"
+        shell /bin/echo
+        shell-arg TASK_SHELL_MARKER
+        always-run true
+        run {
+            not-a-shell-script
+        }
+    }
+
+    ;; Bare shell name: resolved via PATH by posix_spawnp. Needed for
+    ;; `shell lcl` style tasks where the shell is not an absolute path.
+    task bare_shell_name {
+        description "Bare shell name resolved via PATH"
+        shell bash
+        shell-arg -c
+        always-run true
+        run {
+            echo "BARE_SHELL_CHECK:${BASH_VERSION}"
+        }
+    }
+
+    ;; Command-level override goes through the same extraction path.
+    command command_shell_override {
+        description "Command-level shell override to /bin/echo"
+        shell /bin/echo
+        shell-arg CMD_SHELL_MARKER
+        run {
+            not-a-shell-script
         }
     }
 }

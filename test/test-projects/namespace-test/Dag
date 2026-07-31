@@ -10,10 +10,10 @@ project ns_test {
 
     task test_let_vars {
         description "Test let variable substitution in run script"
-        outputs $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
+        outputs ${ns_test::BUILD_DIR}/${ns_test::OUTPUT_FILE}
         run {
-            mkdir -p $ns_test::BUILD_DIR
-            echo "let_vars_work" > $ns_test::BUILD_DIR/$ns_test::OUTPUT_FILE
+            mkdir -p ${ns_test::BUILD_DIR}
+            echo "let_vars_work" > ${ns_test::BUILD_DIR}/${ns_test::OUTPUT_FILE}
         }
     }
 
@@ -24,7 +24,7 @@ project ns_test {
 
     task test_let_list {
         description "Test def with list value"
-        outputs $ns_test::FILE_LIST
+        outputs ${ns_test::FILE_LIST}
         run {
             touch file1.txt file2.txt file3.txt
         }
@@ -38,24 +38,24 @@ project ns_test {
 
     task producer {
         description "Producer task for output reference test"
-        outputs $ns_test::PRODUCER_OUT
+        outputs ${ns_test::PRODUCER_OUT}
         run {
             mkdir -p build
-            echo "produced" > $ns_test::PRODUCER_OUT
+            echo "produced" > ${ns_test::PRODUCER_OUT}
         }
     }
 
     task consumer {
         description "Consumer task - depends on producer via inputs"
-        inputs $ns_test::PRODUCER_OUT
-        outputs $ns_test::CONSUMER_OUT
+        inputs ${ns_test::PRODUCER_OUT}
+        outputs ${ns_test::CONSUMER_OUT}
         run {
-            cat $ns_test::PRODUCER_OUT > $ns_test::CONSUMER_OUT
+            cat ${ns_test::PRODUCER_OUT} > ${ns_test::CONSUMER_OUT}
         }
     }
 
     ;; ============================================================================
-    ;; Test 4: Explicit depends_on
+    ;; Test 4: Explicit depends-on
     ;; ============================================================================
     task base_task {
         description "Base task with a run script"
@@ -66,7 +66,7 @@ project ns_test {
 
     task dependent_task {
         description "Depends explicitly on base_task"
-        depends_on ns_test::base_task
+        depends-on ns_test::base_task
         run {
             echo "Running after base_task"
         }
@@ -77,8 +77,8 @@ project ns_test {
     ;; ============================================================================
     task multi_dep {
         description "Depends on multiple tasks"
-        depends_on (ns_test::producer ns_test::consumer)
-        inputs ($ns_test::PRODUCER_OUT $ns_test::CONSUMER_OUT)
+        depends-on (ns_test::producer ns_test::consumer)
+        inputs (${ns_test::PRODUCER_OUT} ${ns_test::CONSUMER_OUT})
         run {
             echo "All dependencies satisfied"
         }
@@ -95,14 +95,25 @@ project ns_test {
     }
 
     ;; ============================================================================
-    ;; Test 7: Mixed content in run script
+    ;; Test 7: Mixed content — guest syntax passes through untouched
     ;; ============================================================================
     task mixed_content {
         description "Test mixed content with shell variables"
         run {
-            # Shell variables should be preserved
-            echo "LCL var: $ns_test::BUILD_DIR"
+            # A real splice, for contrast:
+            echo "LCL var: ${ns_test::BUILD_DIR}"
+            # Guest shell syntax is untouched by Dagwood:
             echo "Shell special: $$ $? $!"
+            echo "Guest braced: ${HOME}"
+            # Bare qualified refs belong to the guest (single-quoted so
+            # the shell prints them literally). The first is a foreign
+            # namespace; the second matches a project and must trigger
+            # Dagwood's forgot-the-braces warning on stderr while still
+            # passing through verbatim.
+            echo 'Foreign: $some_pkg::value'
+            echo 'Warned: $ns_test::BUILD_DIR'
+            # Escaped splice: Dagwood emits literal ${...}
+            echo 'Escaped: \${ns_test::BUILD_DIR}'
         }
     }
 
@@ -116,7 +127,7 @@ project ns_test {
     task reference_other_run {
         description "References another task's run script"
         run {
-            echo "Other task run script: $ns_test::base_task::run"
+            echo "Other task run script: ${ns_test::base_task::run}"
         }
     }
 
@@ -127,7 +138,7 @@ project ns_test {
         description "Self-referencing outputs test"
         outputs build/self_ref.txt
         run {
-            echo "My outputs: $ns_test::self_ref_outputs::outputs"
+            echo "My outputs: ${ns_test::self_ref_outputs::outputs}"
             mkdir -p build
             touch build/self_ref.txt
         }
@@ -139,17 +150,21 @@ project ns_test {
     task reference_description {
         description "References producer task description"
         run {
-            echo "Producer description: $ns_test::producer::description"
+            echo "Producer description: ${ns_test::producer::description}"
         }
     }
 
     ;; ============================================================================
     ;; Test 12: Command attribute reference
     ;; ============================================================================
+    ;; NOTE: splices are single-level — the spliced text is not
+    ;; re-scanned. clean's run body itself contains ${ns_test::...}
+    ;; splice text, so it is single-quoted here to keep the shell from
+    ;; trying to expand it.
     task reference_command_run {
         description "References a command's run script"
         run {
-            echo "Clean command run: $ns_test::clean::run"
+            echo 'Clean command run: ${ns_test::clean::run}'
         }
     }
 
@@ -159,7 +174,7 @@ project ns_test {
     command clean {
         description "Clean build artifacts"
         run {
-            rm -rf $ns_test::BUILD_DIR build file1.txt file2.txt file3.txt
+            rm -rf ${ns_test::BUILD_DIR} build file1.txt file2.txt file3.txt
         }
     }
 }

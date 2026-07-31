@@ -1,0 +1,50 @@
+;; Lcl-as-shell test: run bodies interpreted by the lcl CLI instead of
+;; a POSIX shell, plus Posix::* extension use inside the Dagwood file
+;; itself (the same interpreter that evaluates this file).
+
+project lcl_shell_test {
+    ;; Exercise Posix::glob in the defining interpreter.
+    let DAG_FILES [Posix::glob *.lcl]
+    let TAG SPLICE_OK
+
+    task lcl_task {
+        description "Run body evaluated by the lcl CLI"
+        shell lcl
+        shell-arg -c
+        always-run true
+        run {
+            let msg "LCL_SHELL_OK"
+            Io::write_file lcl_task.out $msg
+            puts $msg
+        }
+    }
+
+    command lcl_command {
+        description "Command run body evaluated by the lcl CLI"
+        shell lcl
+        shell-arg -c
+        run {
+            let files [Posix::glob *.lcl]
+            puts "LCL_GLOB_COUNT:[len $files]"
+        }
+    }
+
+    ;; The splice spelling ${a::b} is also Lcl's own qualified
+    ;; substitution syntax, so under `shell lcl` one spelling has two
+    ;; audiences. Dagwood claims every ${a::b} at load time; a
+    ;; backslash before the opener hands one through to the guest Lcl
+    ;; untouched. (No unbalanced braces in comments here: this is
+    ;; inside the project's brace body.)
+    command lcl_splice {
+        description "Dagwood splice vs escaped guest-Lcl qualified ref"
+        shell lcl
+        shell-arg -c
+        run {
+            ;; Spliced by Dagwood before lcl ever sees the text:
+            puts "SPLICED:${lcl_shell_test::TAG}"
+            ;; Escaped: the guest lcl resolves this itself.
+            namespace guest { let v GUEST_OK }
+            puts "GUEST:\${guest::v}"
+        }
+    }
+}

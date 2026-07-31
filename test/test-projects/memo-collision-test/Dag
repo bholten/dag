@@ -10,7 +10,7 @@ project main_project {
     ;; Both tasks have outputs, so staleness is determined by whether outputs exist.
     task build {
         description "Main project build"
-        depends_on sub_project::build
+        depends-on sub_project::build
         outputs main_output.txt
         run {
             echo "main_project built" > main_output.txt

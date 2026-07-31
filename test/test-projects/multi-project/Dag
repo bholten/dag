@@ -11,17 +11,17 @@ project multiproject {
     ;; Top-level task that depends on all sub-projects
     task all {
         description "Build all projects"
-        depends_on (project_1::task_3 project_2::build project_3::combine)
+        depends-on (project_1::task_3 project_2::build project_3::combine)
         run {
-            mkdir -p $multiproject::BUILD_DIR
-            echo "All projects built successfully" > $multiproject::BUILD_DIR/complete.txt
+            mkdir -p ${multiproject::BUILD_DIR}
+            echo "All projects built successfully" > ${multiproject::BUILD_DIR}/complete.txt
         }
     }
 
     command clean {
         description "Clean all projects"
         run {
-            rm -rf $multiproject::BUILD_DIR
+            rm -rf ${multiproject::BUILD_DIR}
         }
     }
 }

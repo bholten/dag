@@ -21,9 +21,12 @@ provides a pleasant interface for describing projects and tasks.
 
 Dagwood projects define a number of tasks, and Dagwood builds a DAG
 from these tasks by inspecting their inputs, outputs, and explicit
-"depends_on" relationships defined in the task definitions. It then
-topologically sorts this task-DAG and executes "layers" concurrently
-(tasks within a layer run in parallel; layers execute sequentially).
+"depends-on" relationships defined in the task definitions. It then
+executes the DAG with a ready-queue scheduler: a task launches the
+moment its dependencies complete, with the number of concurrently
+running tasks capped by `-j` (default: the CPU count; `-j 0` removes
+the bound). The graph describes what may run in parallel; `-j`
+describes how much of it may run at once.
 
 Projects can be imported and composed with your project's task graph.
 This echoes the Bazel influence mentioned earlier: Dagwood can "import"
@@ -34,8 +37,15 @@ third-party projects.
 Imported projects can also be mutated from the importer: tasks can be
 overridden, extended, or disabled, and project-level config can be
 overridden, all without forking the imported project. The relevant DSL
-keywords are task_override, task_extend, task_disable, project_override,
-and task_get (the read-only counterpart).
+keywords are task-override, task-extend, task-disable, project-override,
+and task-get (the read-only counterpart).
+
+Tasks can also be generated programmatically: `task` is an ordinary
+Lcl command, so a proc (in the Dag file, or in an imported helper
+module under e.g. .dag/) can loop over a glob and define one task per
+input/output pair, with ${self::inputs} / ${self::outputs} standing
+for the task's own attributes in its run body. This keeps mtime
+staleness granular when there are hundreds of small tasks.
 
 Tasks in Dagwood are simply shell commands. Dagwood only cares about
 the return code, but the command could be anything. It could be a
@@ -52,16 +62,17 @@ Some features of Dagwood:
 
         task compile {
             inputs src/main.c
-            outputs $myproject::BUILD_DIR/main.o
+            outputs ${myproject::BUILD_DIR}/main.o
             run {
-                gcc -c src/main.c -o $myproject::BUILD_DIR/main.o
+                gcc -c src/main.c -o ${myproject::BUILD_DIR}/main.o
             }
         }
     }
 
 - Dagwood materializes an entire DAG based off information in the
   tasks (inputs, outputs, dependencies) and validates it before
-  running, parallelizing each "layer" in the DAG.
+  running, then executes it with bounded parallelism (`-j N`,
+  defaulting to the CPU count).
 
 - Tasks can set their own shell, even to something like `perl -e` if
   you're feeling spicy.
@@ -69,8 +80,8 @@ Some features of Dagwood:
 - Dagwood projects can import other projects isolated with namespaces.
 
 - Task attribute introspection: tasks and commands expose their
-  attributes as namespace variables. $project::task::run gives you the
-  run script, $project::task::outputs gives you the outputs, etc.
+  attributes as namespace variables. ${project::task::run} gives you the
+  run script, ${project::task::outputs} gives you the outputs, etc.
   This is particularly useful for wrapper tools:
 
     project myproject {
@@ -86,7 +97,7 @@ Some features of Dagwood:
         task compile_db {
             outputs compile_commands.json
             run {
-                bear -- $myproject::compile::run
+                bear -- ${myproject::compile::run}
             }
         }
 
@@ -94,7 +105,7 @@ Some features of Dagwood:
         task compile_cached {
             outputs build/main
             run {
-                ccache $myproject::compile::run
+                ccache ${myproject::compile::run}
             }
         }
     }
@@ -124,18 +135,19 @@ Some features of Dagwood:
 LCL Scripting Features:
 
 The embedded LCL interpreter provides filesystem operations via the
-io:: namespace. This is useful for dynamic task generation:
+Io:: and Posix:: namespaces. This is useful for dynamic task
+generation:
 
-    io::getcwd              ;; Get current working directory
-    io::exists? path        ;; Check if file/directory exists
-    io::file? path          ;; Check if path is a regular file
-    io::dir? path           ;; Check if path is a directory
-    io::glob pattern        ;; POSIX glob pattern matching
-    io::readdir path        ;; List directory contents
-    io::read_file path      ;; Read entire file contents
-    io::write_file path str ;; Write string to file
-    io::file_mtime path     ;; Get modification time (Unix timestamp)
-    io::getenv VAR          ;; Get environment variable
+    Io::read_file path      ;; Read entire file contents
+    Io::write_file path str ;; Write string to file
+    Io::getenv VAR          ;; Get environment variable
+    Posix::getcwd           ;; Get current working directory
+    Posix::exists? path     ;; Check if file/directory exists
+    Posix::file? path       ;; Check if path is a regular file
+    Posix::dir? path        ;; Check if path is a directory
+    Posix::glob pattern     ;; POSIX glob pattern matching
+    Posix::readdir path     ;; List directory contents
+    Posix::file_mtime path  ;; Get modification time (Unix timestamp)
 
 Standard LCL features like lists, dicts, string manipulation, and
 control flow are also available. More documentation forthcoming.
@@ -181,15 +193,17 @@ Some FAQs:
 
 Q: How is this different from `make -j`?
 
-A: `make -j` provides flat parallelism by launching jobs when
-prerequisites are satisfied. However, it has no concept of layers or
-task grouping, offers no DAG introspection, it silently fails when
-targets are missing or misdeclared, and (most importantly for our
-use-cases) it is extremely brittle when composing across multiple
-projects.
+A: At execution time they now schedule the same way: jobs launch as
+soon as their prerequisites are satisfied, bounded by `-j`. The
+difference is everything around that. Make offers no DAG
+introspection, silently fails when targets are missing or misdeclared,
+and (most importantly for our use-cases) is extremely brittle when
+composing across multiple projects.
 
 Dagwood builds the entire graph upfront, validates inputs and outputs,
-detects cycles, and executes in well-defined layers.
+detects cycles before running anything, and can show you the
+dependency layers (`--dry-run`, `--dot`) that the scheduler is
+honoring.
 
 Q: I already use recursive make. What's the advantage here?
 

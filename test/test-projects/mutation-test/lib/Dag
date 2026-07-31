@@ -10,42 +10,42 @@ project mylib {
 
     task build {
         description "Build the library"
-        outputs $mylib::BUILD_DIR/lib.out
+        outputs ${mylib::BUILD_DIR}/lib.out
         run {
-            mkdir -p $mylib::BUILD_DIR
-            echo "mylib built" > $mylib::BUILD_DIR/lib.out
+            mkdir -p ${mylib::BUILD_DIR}
+            echo "mylib built" > ${mylib::BUILD_DIR}/lib.out
         }
     }
 
     task test {
         description "Test the library"
-        depends_on mylib::build
-        outputs $mylib::BUILD_DIR/test.out
+        depends-on mylib::build
+        outputs ${mylib::BUILD_DIR}/test.out
         run {
-            mkdir -p $mylib::BUILD_DIR
-            echo "mylib tested (original)" > $mylib::BUILD_DIR/test.out
+            mkdir -p ${mylib::BUILD_DIR}
+            echo "mylib tested (original)" > ${mylib::BUILD_DIR}/test.out
         }
     }
 
     task deploy {
         description "Deploy the library"
-        depends_on mylib::test
-        outputs $mylib::BUILD_DIR/deploy.out
+        depends-on mylib::test
+        outputs ${mylib::BUILD_DIR}/deploy.out
         run {
-            mkdir -p $mylib::BUILD_DIR
-            echo "mylib deployed" > $mylib::BUILD_DIR/deploy.out
+            mkdir -p ${mylib::BUILD_DIR}
+            echo "mylib deployed" > ${mylib::BUILD_DIR}/deploy.out
         }
     }
 
-    ;; Task with a non-empty depends_on list, used to exercise
-    ;; task_extend's list-concatenation path.
+    ;; Task with a non-empty depends-on list, used to exercise
+    ;; task-extend's list-concatenation path.
     task package {
         description "Package the library"
-        depends_on (mylib::build mylib::test)
-        outputs $mylib::BUILD_DIR/pkg.out
+        depends-on (mylib::build mylib::test)
+        outputs ${mylib::BUILD_DIR}/pkg.out
         run {
-            mkdir -p $mylib::BUILD_DIR
-            echo "mylib packaged" > $mylib::BUILD_DIR/pkg.out
+            mkdir -p ${mylib::BUILD_DIR}
+            echo "mylib packaged" > ${mylib::BUILD_DIR}/pkg.out
         }
     }
 }

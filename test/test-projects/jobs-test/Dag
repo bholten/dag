@@ -1,0 +1,66 @@
+;; Scheduler test: -j bounds running commands, not readiness.
+project jobs {
+    ;; Three independent tasks. Under -j 1 they must serialize: each
+    ;; start line is immediately followed by its own end line.
+    task a {
+        always-run true
+        run { echo start-a >> order.log; sleep 0.1; echo end-a >> order.log }
+    }
+
+    task b {
+        always-run true
+        run { echo start-b >> order.log; sleep 0.1; echo end-b >> order.log }
+    }
+
+    task c {
+        always-run true
+        run { echo start-c >> order.log; sleep 0.1; echo end-c >> order.log }
+    }
+
+    task all {
+        depends-on [list jobs::a jobs::b jobs::c]
+        always-run true
+        run { true }
+    }
+
+    ;; Rendezvous pair: each writes its flag then waits for the
+    ;; other's. Completes only when both run concurrently, so it
+    ;; proves -j 2 really runs two commands at once.
+    task left {
+        always-run true
+        run {
+            touch left.flag
+            i=0
+            while [ $i -lt 50 ]; do
+                [ -f right.flag ] && exit 0
+                i=$((i+1))
+                sleep 0.1
+            done
+            exit 1
+        }
+    }
+
+    task right {
+        always-run true
+        run {
+            touch right.flag
+            i=0
+            while [ $i -lt 50 ]; do
+                [ -f left.flag ] && exit 0
+                i=$((i+1))
+                sleep 0.1
+            done
+            exit 1
+        }
+    }
+
+    task both {
+        depends-on [list jobs::left jobs::right]
+        always-run true
+        run { true }
+    }
+
+    command clean {
+        run { rm -f order.log left.flag right.flag }
+    }
+}

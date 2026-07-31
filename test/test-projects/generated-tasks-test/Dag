@@ -1,0 +1,44 @@
+;; Programmatic task generation: tasks created by a proc in an imported
+;; helper module, one per input/output pair, with ${self::...} splices.
+import ./.dag/docgen.lcl
+
+;; In-file generator too: procs compiled before the project block must
+;; still resolve `task`.
+proc gen-copies {names} {
+    foreach n $names {
+        task "copy-$n" {
+            inputs "docs/${n}.txt"
+            outputs "site/${n}.copy"
+            run { mkdir -p site; cp ${self::inputs} ${self::outputs} }
+        }
+    }
+}
+
+project gen {
+    let docs (alpha beta)
+    DocGen::gen-docs $docs
+    gen-copies $docs
+
+    task all {
+        description "depends on every generated task"
+        depends-on [List::map $docs [lambda {d} { "gen::$d" }]]
+        always-run true
+        run { echo "all generated tasks done" }
+    }
+
+    ;; Explicit kebab-segment splice and kebab introspection names:
+    ;; ${gen::copy-alpha::inputs} names another task's attribute
+    ;; directly (Lcl's braced grammar accepts '-' in segments), and
+    ;; always-run/depends-on/shell-arg introspection variables are
+    ;; kebab-case like every other DSL word.
+    command attrs {
+        run {
+            echo "copy-alpha reads ${gen::copy-alpha::inputs}"
+            echo "all always-run: ${gen::all::always-run}"
+        }
+    }
+
+    command clean {
+        run { rm -rf site }
+    }
+}

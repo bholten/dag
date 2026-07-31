@@ -25,6 +25,7 @@ typedef struct dagwood_task {
   bool always_run;
   bool visited;
   size_t in_degree;
+  size_t sched_idx; /* transient: index in the scheduler's scope */
 } dagwood_task;
 
 dagwood_task *dagwood_task_new(void);
@@ -57,6 +58,8 @@ typedef struct dagwood_graph {
 
   pid_t *pidsv_unsafe;
   size_t pidsc;
+
+  size_t max_jobs;
 
   bool force_run;
   bool quiet;
