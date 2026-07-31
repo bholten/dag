@@ -31,8 +31,8 @@
 /* clang-format on */
 
 #include "dagwood.h"
-#include "data.h"
 #include "dagwood_dsl.h"
+#include "data.h"
 #include "interpreter.h"
 
 static char *strdup_safe(const char *s);
@@ -787,8 +787,8 @@ static bool extract_all_projects(lcl_interp *interp, p_map *project_registry,
 
           if (lcl_dict_get(tasks_dict, task_name, &task_dict) == LCL_OK &&
               task_dict) {
-            dagwood_task *task =
-                extract_task(interp, project_name, task_name, task_dict, project);
+            dagwood_task *task = extract_task(interp, project_name, task_name,
+                                              task_dict, project);
 
             if (!task) {
               lcl_ref_dec(task_dict);

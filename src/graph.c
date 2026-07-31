@@ -205,7 +205,8 @@ static bool task_stale(dagwood_graph *g, dagwood_task *task) {
     }
 
     ts_map_set(g->memo, task->id, TASK_CLEAN);
-    fprintf(stderr, "[dagwood] [%s] clean - outputs exist, no inputs to compare\n",
+    fprintf(stderr,
+            "[dagwood] [%s] clean - outputs exist, no inputs to compare\n",
             task->id);
     return false;
   }
@@ -266,8 +267,8 @@ static void emit_line(const char *task_id, const char *data, size_t len,
  * it (without the trailing \n) and shift the buffer. If the buffer is
  * completely full with no newline found, emit what we have with a
  * synthesized terminator and reset. */
-static void drain_buffer(const char *task_id, char *buf, size_t *len,
-                         FILE *out, bool quiet) {
+static void drain_buffer(const char *task_id, char *buf, size_t *len, FILE *out,
+                         bool quiet) {
   size_t start = 0;
   size_t i;
 

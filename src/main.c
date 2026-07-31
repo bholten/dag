@@ -257,8 +257,7 @@ static int cmd_repl(const char *file) {
    * absent. The error from interpreter_task_registry already prints
    * to stderr; we just note that the REPL is starting anyway. */
   if (!interpreter_task_registry(interp, file)) {
-    fprintf(stderr,
-            "[dagwood] REPL: starting without a loaded project\n");
+    fprintf(stderr, "[dagwood] REPL: starting without a loaded project\n");
   }
 
   interpreter_repl(interp);
@@ -456,7 +455,10 @@ int main(int argc, char **argv) {
     result = cmd_inspect(file, target);
     free_cli_args();
     return result;
-  case MODE_REPL: result = cmd_repl(file); free_cli_args(); return result;
+  case MODE_REPL:
+    result = cmd_repl(file);
+    free_cli_args();
+    return result;
   case MODE_RUN: break;
   }
 
